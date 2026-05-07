@@ -1,0 +1,247 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="UTF-8">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+
+:root {
+  --brand-red:   #e50036;
+  --gold:        #D4AF37;
+  --gold-dark:   #B8860B;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;background:#f3f4f6}
+
+/* ──── 单张工牌 ──── */
+.card{
+  width:96mm;height:55mm;
+  background:white;
+  border:0.3mm solid #d0d0d0;
+  border-radius:1.2mm;
+  overflow:hidden;
+  display:flex;flex-direction:column;
+  position:relative;
+  font-size:0;
+}
+
+/* 顶栏 */
+.card-header{
+  background:var(--brand-red);
+  height:9.5mm;flex-shrink:0;
+  display:flex;align-items:center;
+  padding:0 2mm;
+}
+.role-badge{
+  background:white;border-radius:1mm;
+  width:9mm;height:7.5mm;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  margin-right:2mm;
+}
+.role-badge span{
+  color:var(--brand-red);font-size:2.4mm;font-weight:700;
+  text-align:center;line-height:1.2;display:block;
+}
+.brand-section{flex:1;display:flex;flex-direction:column;justify-content:center}
+.brand-cn{color:white;font-size:3.8mm;font-weight:700;line-height:1.25}
+.brand-en-row{display:flex;align-items:center;gap:0.8mm;margin-top:0.3mm}
+.brand-icon{
+  width:3mm;height:3mm;background:white;border-radius:0.3mm;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+}
+.brand-en{color:white;font-size:1.9mm;line-height:1}
+.pill-group{display:flex;flex-direction:column;gap:1mm;margin-right:1mm}
+.pill{width:6.5mm;height:2.8mm;border-radius:1.4mm}
+.pill-w{background:white}
+.pill-r{background:#ff3355;border:0.3mm solid white}
+
+/* 底条 */
+.card-footer{background:var(--brand-red);height:1.2mm;flex-shrink:0}
+
+/* 主体 */
+.card-body{
+  flex:1;display:flex;
+  padding:2.8mm 2.8mm 2mm 2.8mm;
+  gap:3mm;overflow:hidden;
+}
+
+/* 照片 */
+.photo-wrap{
+  width:25mm;height:35mm;flex-shrink:0;
+  border:0.3mm solid #c8c8c8;
+  background:#f5f5f5;
+  position:relative;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+}
+.photo-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+.photo-xline{
+  position:absolute;inset:0;
+  background:
+    linear-gradient(to bottom right,transparent calc(50% - 0.3mm),#c8c8c8 50%,transparent calc(50% + 0.3mm)),
+    linear-gradient(to bottom left, transparent calc(50% - 0.3mm),#c8c8c8 50%,transparent calc(50% + 0.3mm));
+}
+.photo-label{
+  position:relative;z-index:1;
+  color:#BBBBBB;font-size:2.8mm;
+}
+
+/* 内容区 */
+.content-area{flex:1;display:flex;flex-direction:column;min-width:0}
+
+/* 五星 */
+.stars-row{
+  display:flex;gap:0.55mm;
+  margin-top:2mm;margin-bottom:3.5mm;
+  align-self:flex-start;
+}
+.star{
+  color:var(--gold);font-size:5.2mm;line-height:1;
+  text-shadow:0 0 0.8mm var(--gold-dark);
+}
+
+/* 字段 */
+.field{
+  display:flex;align-items:flex-end;
+  border-bottom:0.3mm solid #333;
+  padding-bottom:0.5mm;margin-bottom:1mm;
+}
+.field-lbl{color:#1a1a1a;font-size:3.4mm;white-space:nowrap;flex-shrink:0}
+.field-val{color:#1a1a1a;font-size:3.4mm;flex:1;min-width:0}
+
+/* 二维码 */
+.qr-wrap{
+  width:13mm;flex-shrink:0;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+}
+.qr-box{
+  width:13mm;height:13mm;
+  border:0.3mm solid #c0c0c0;
+  overflow:hidden;display:flex;align-items:center;justify-content:center;
+}
+.qr-box img{width:100%;height:100%;object-fit:contain;display:block}
+.qr-lbl{color:#aaa;font-size:2.2mm;margin-top:0.5mm;text-align:center}
+
+/* 水印 */
+.watermark{
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  font-size:34mm;font-weight:900;
+  color:rgba(210,210,210,0.07);
+  pointer-events:none;user-select:none;z-index:0;
+}
+
+/* ──── A4 拼版 ──── */
+.a4-page{
+  width:210mm;height:297mm;
+  background:white;
+  display:grid;
+  grid-template-columns:repeat(2,96mm);
+  grid-template-rows:repeat(5,55mm);
+  padding:2mm 5mm;
+  column-gap:8mm;
+  row-gap:3.4mm;
+}
+
+/* ──── 屏幕预览比例 ──── */
+@media screen{
+  .preview-scale{
+    transform-origin:top left;
+    transform:scale(2.0);
+  }
+}
+@media print{
+  body{background:white}
+  .no-print{display:none!important}
+}
+
+body{display:flex;flex-direction:column;align-items:center;gap:20px;padding:20px;background:#888}
+@media print{body{background:white;padding:0;gap:0}}
+</style>
+</head><body>
+<div class="a4-page">
+<div class="card">
+  <div class="watermark">A</div>
+  <!-- 顶栏 -->
+  <div class="card-header">
+    <div class="role-badge"><span>执业<br>药师</span></div>
+    <div class="brand-section">
+      <div class="brand-cn">高济药房</div>
+      <div class="brand-en-row">
+        <div class="brand-icon"></div>
+        <span class="brand-en">COWELL PHARMACY</span>
+      </div>
+    </div>
+    <div class="pill-group">
+      <div class="pill pill-w"></div>
+      <div class="pill pill-r"></div>
+    </div>
+  </div>
+  <!-- 主体 -->
+  <div class="card-body">
+    <div class="photo-wrap"><div class="photo-xline"></div><span class="photo-label">证/照</span></div>
+    <div class="content-area">
+      <div class="stars-row"><svg class="star" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:5.2mm;height:5.2mm;fill:#D4AF37;stroke:#B8860B;stroke-width:0.5px"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg><svg class="star" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:5.2mm;height:5.2mm;fill:#D4AF37;stroke:#B8860B;stroke-width:0.5px"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg><svg class="star" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:5.2mm;height:5.2mm;fill:#D4AF37;stroke:#B8860B;stroke-width:0.5px"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg><svg class="star" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:5.2mm;height:5.2mm;fill:#D4AF37;stroke:#B8860B;stroke-width:0.5px"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg><svg class="star" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:5.2mm;height:5.2mm;fill:#D4AF37;stroke:#B8860B;stroke-width:0.5px"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg></div>
+      <div class="field">
+        <span class="field-lbl">姓名：</span>
+        <span class="field-val">高济佳</span>
+      </div>
+      <div class="field">
+        <span class="field-lbl">职务：</span>
+        <span class="field-val">执业药师</span>
+      </div>
+      <div class="field">
+        <span class="field-lbl">工号：</span>
+        <span class="field-val">8000789</span>
+      </div>
+    </div>
+    <div class="qr-wrap">
+      <div class="qr-box"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAOYAAADmCAIAAABOCG7sAAADm0lEQVR4nO3dQY7UMBRAwQni/lduFsw6AhljP7tqizIJnSdvvuw8n8/nCzp+rH4A+DuSJUayxEiWGMkSI1liJEuMZImRLDE/3//5eZ6vs6ya9r3/kiNP9Vz2jqyyxEiWGMkSI1liJEuMZImRLDGSJUaynDX9erfnvrGRadDIjGrVtbe9I6ssMZIlRrLESJYYyRIjWWIkS4xkiZEsN02/Vu1JmjfRGZlRvZs337rtHVlliZEsMZIlRrLESJYYyRIjWWIkS4xkiZk4/TrPvNkYf84qS4xkiZEsMZIlRrLESJYYyRIjWWIkS4zp1z+bYI3MxvbcGbYnqywxkiVGssRIlhjJEiNZYiRLjGSJkSwxE6dfxZnNqme+7b4jrLLESJYYyRIjWWIkS4xkiZEsMZIlRrLcNP0676y/kT1Yq6697R1ZZYmRLDGSJUayxEiWGMkSI1liJEuMZIl5irt/VnE+4Q6sssRIlhjJEiNZYiRLjGSJkSwxkiVGspy196u4F2rVjOq2Z171l62yxEiWGMkSI1liJEuMZImRLDGSJUayxEz87tcqI3OmVffd89p5Rp7KKkuMZImRLDGSJUayxEiWGMkSI1liJMtZ0689T/MbmWCtmo3N80x75j1/DassMZIlRrLESJYYyRIjWWIkS4xkiZEsN333a8/pyHkTu1XzvI+TD2GcZImRLDGSJUayxEiWGMkSI1liJMtZ0689ZzbFa9/t+RZGzPs1rLLESJYYyRIjWWIkS4xkiZEsMZIlRrLctPfrPOfNmT5bzrfemX5xFMkSI1liJEuMZImRLDGSJUayxEiWs777tefZhvMmK6v2YI1MsD7HnV35zipLjGSJkSwxkiVGssRIlhjJEiNZYiTLTScf7rlvrPjM5/1/H9/9gt8kS4xkiZEsMZIlRrLESJYYyRIjWc7a+zXivFMER+w5ZXyC97XKEiNZYiRLjGSJkSwxkiVGssRIlhjJEjNx+lU0b0ZVvHbepNDeLy4iWWIkS4xkiZEsMZIlRrLESJYYyRJj+vWf5kzzPFt+jWzeX7bKEiNZYiRLjGSJkSwxkiVGssRIlhjJEjNx+lX8wtaqPVjz9lE90+77zne/4JtkiZEsMZIlRrLESJYYyRIjWWIky03Tr1W7neZZ9R2sPSdn70bua+8XF5EsMZIlRrLESJYYyRIjWWIkS4xkiXmKO7S4mVWWGMkSI1liJEuMZImRLDGSJUayxEiWr5ZfPkoS7CfhadAAAAAASUVORK5CYII=" alt="企微码"/></div>
+      <div class="qr-lbl">企微码</div>
+    </div>
+  </div>
+  <!-- 底条 -->
+  <div class="card-footer"></div>
+</div>
+<div class="card">
+  <div class="watermark">A</div>
+  <!-- 顶栏 -->
+  <div class="card-header">
+    <div class="role-badge"><span>店长</span></div>
+    <div class="brand-section">
+      <div class="brand-cn">高济药房</div>
+      <div class="brand-en-row">
+        <div class="brand-icon"></div>
+        <span class="brand-en">COWELL PHARMACY</span>
+      </div>
+    </div>
+    <div class="pill-group">
+      <div class="pill pill-w"></div>
+      <div class="pill pill-r"></div>
+    </div>
+  </div>
+  <!-- 主体 -->
+  <div class="card-body">
+    <div class="photo-wrap"><div class="photo-xline"></div><span class="photo-label">证/照</span></div>
+    <div class="content-area">
+      <div class="stars-row"><svg class="star" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:5.2mm;height:5.2mm;fill:#D4AF37;stroke:#B8860B;stroke-width:0.5px"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg><svg class="star" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:5.2mm;height:5.2mm;fill:#D4AF37;stroke:#B8860B;stroke-width:0.5px"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg><svg class="star" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:5.2mm;height:5.2mm;fill:#D4AF37;stroke:#B8860B;stroke-width:0.5px"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg><svg class="star" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:5.2mm;height:5.2mm;fill:#D4AF37;stroke:#B8860B;stroke-width:0.5px"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg><svg class="star" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:5.2mm;height:5.2mm;fill:#D4AF37;stroke:#B8860B;stroke-width:0.5px"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg></div>
+      <div class="field">
+        <span class="field-lbl">姓名：</span>
+        <span class="field-val">张三丰</span>
+      </div>
+      <div class="field">
+        <span class="field-lbl">职务：</span>
+        <span class="field-val">店长</span>
+      </div>
+      <div class="field">
+        <span class="field-lbl">工号：</span>
+        <span class="field-val">8000001</span>
+      </div>
+    </div>
+    <div class="qr-wrap">
+      <div class="qr-box"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAOYAAADmCAIAAABOCG7sAAADoklEQVR4nO3dMY7dOBBAweFi739lOdjEkeCFTJCPrEoHY/8/emDSaHE8z/MDHf+s/gDw/0iWGMkSI1liJEuMZImRLDGSJUayxPz7/uMxxs9Z3qd9877vvCnjuOwZOWWJkSwxkiVGssRIlhjJEiNZYiRLjGQ5a/r1bs+9seIEa57nuGfklCVGssRIlhjJEiNZYiRLjGSJkSwxkuWm6dd5U6gvm2HztsqKe2PPtM/slCVGssRIlhjJEiNZYiRLjGSJkSwxkiVm4vSraN58a88drCKnLDGSJUayxEiWGMkSI1liJEuMZImRLDGmX1vsfpmN/TmnLDGSJUayxEiWGMkSI1liJEuMZImRLDETp18mOn9u1WzsCT4jpywxkiVGssRIlhjJEiNZYiRLjGSJkSw3Tb/m3Rq1yqrtrnl/yXHcM3LKEiNZYiRLjGSJkSwxkiVGssRIlhjJEjOK2z/z7Dkr8ox+55QlRrLESJYYyRIjWWIkS4xkiZEsMZLlrN2vVftMqzal5s2ZVm13PR++0Z5P3ylLjGSJkSwxkiVGssRIlhjJEiNZYiTLTbtf521K7fn2wi+eRc933lsinbLESJYYyRIjWWIkS4xkiZEsMZIlRrKcNf2at1f0btUkadU3Ou/dhsPuF/xHssRIlhjJEiNZYiRLjGSJkSwxkuWsNx++W/UGwj1ncqsmWCM4Kfzyu05ZYiRLjGSJkSwxkiVGssRIlhjJEiNZYia++bB4K9ieE6xVz+iLef+vU5YYyRIjWWIkS4xkiZEsMZIlRrLESJabpl/n2fOmq9vmW++cssRIlhjJEiNZYiRLjGSJkSwxkiVGstx071fRvBnVqvdAvpv3jVbNTZ2yxEiWGMkSI1liJEuMZImRLDGSJUay3HTv1557Y8V7sIp/q7HoDZNOWWIkS4xkiZEsMZIlRrLESJYYyRIjWW6afr3bcxfqy7+8511lRV+2ypyyxEiWGMkSI1liJEuMZImRLDGSJUayxEycfhXNm0Ltee/XCO7JOWWJkSwxkiVGssRIlhjJEiNZYiRLjGSJMf36a1ZNsN659wsWkywxkiVGssRIlhjJEiNZYiRLjGSJmTj9Kt6Dteozr5pCjUW7X958yEUkS4xkiZEsMZIlRrLESJYYyRIjWW6afp13W9W8m73OMz5MsLz5kItIlhjJEiNZYiRLjGSJkSwxkiVGssSM22Y21DlliZEsMZIlRrLESJYYyRIjWWIkS4xk+Wn5BdbuBs6LSTMqAAAAAElFTkSuQmCC" alt="企微码"/></div>
+      <div class="qr-lbl">企微码</div>
+    </div>
+  </div>
+  <!-- 底条 -->
+  <div class="card-footer"></div>
+</div><div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div></div>
+</body></html>
