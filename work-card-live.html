@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>高济药房 · 员工工牌制作系统</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<style>
+/* ================================================
+   工牌卡片样式（严格按设计稿）
+   挂卡尺寸: 96mm × 55mm  →  A4 每页 2×5 = 10张
+   ================================================ */
+
+.badge-card {
+  width: 96mm;
+  height: 55mm;
+  background: #fff;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+
+/* ---- 头部 ---- */
+.bh {
+  background: #E50036;
+  height: 11.3mm;
+  margin-top: -5px;
+  display: flex;
+  align-items: center;
+  padding: 0 2mm 0 0;
+  gap: 2mm;
+  flex-shrink: 0;
+  position: relative;
+  overflow: visible;
+}
+
+/* 左侧职位徽章 — 顶部对齐，向下延伸出header */
+.bh-role {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  align-self: flex-start;
+  width: 10.8mm;
+  border-radius: 2mm 2mm 0 0;
+  margin-left: 12px;
+  margin-top: 10px;
+  overflow: visible;
+}
+/* 上半截：白色圆角方块（红色皇冠 + 红色店长） */
+.bh-role-top {
+  width: 10.8mm;
+  height: 8.6mm;
+  background: #fff;
+  border-radius: 2mm 2mm 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8mm;
+  flex-shrink: 0;
+}
+/* 下半截：红色标签（白色Store Manager） */
+.bh-role-bottom {
+  width: 10.8mm;
+  background: #E50036;
+  border-radius: 0 0 2mm 2mm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.8mm 0.5mm;
+}
+.bh-role-crown svg {
+  width: 4mm; height: 2.8mm;
+  display: block;
+}
+.bh-role-cn {
+  font-size: 3.5mm;
+  font-weight: 900;
+  color: #E50036;
+  line-height: 1;
+  text-align: center;
+  letter-spacing: 0.5mm;
+}
+.bh-role-en {
+  font-size: 1.1mm;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+  letter-spacing: 0.1mm;
+}
+
+/* 品牌区 — OPPO Sans / Noto Sans SC */
+.bh-brand {
+  display: flex;
+  align-items: center;
+  gap: 1.8mm;
+  flex: 1;
+  font-family: 'OPPO Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  margin-left: -40px;
+}
+.bh-brand-cn {
+  color: #fff;
+  font-size: 6.2mm;
+  font-weight: 900;
+  letter-spacing: 0.4mm;
+  line-height: 1;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+  transform: scaleX(0.75);
+  transform-origin: left center;
+}
+/* "高"字品牌特殊处理：略大、与截图一致的比例 */
+.bh-brand-gao {
+  font-size: 7mm;
+  font-weight: 400;
+  letter-spacing: 0.2mm;
+  line-height: 1;
+}
+.bh-brand-rest {
+  font-size: 6.2mm;
+  font-weight: 400;
+  letter-spacing: 0.5mm;
+  line-height: 1;
+}
+/* 十字药箱图标 — 白底红十字圆角方块 */
+.bh-cross-box {
+  width: 5.5mm; height: 5.5mm;
+  background: #fff;
+  border-radius: 1mm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: -35px;
+}
+.bh-cross-box svg { width: 3.8mm; height: 3.8mm; }
+/* 英文品牌 — COWELL / PHARMACY */
+.bh-brand-en {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  gap: 0.1mm;
+  font-family: 'Arial', 'Helvetica Neue', sans-serif;
+  transform: scaleX(0.667);
+  transform-origin: left center;
+  margin-left: -40px;
+}
+.bh-brand-en b {
+  color: #fff;
+  font-size: 3.2mm;
+  font-weight: 800;
+  letter-spacing: 0.6mm;
+}
+.bh-brand-en small {
+  color: rgba(255,255,255,0.92);
+  font-size: 2.2mm;
+  font-weight: 600;
+  letter-spacing: 0.9mm;
+}
+
+/* Logo — 头部右侧 */
+.bh-logo {
+  position: absolute;
+  left: 16mm;
+  right: 33mm;
+  top: 0;
+  height: 11.3mm;
+  object-fit: contain;
+  object-position: center center;
+  z-index: 20;
+}
+
+/* 右侧装饰 — 实心白色圆形+胶囊，右侧溢出裁切 */
+.bh-deco {
+  position: absolute;
+  right: 0; top: 0;
+  height: 11.3mm;
+  width: 30mm;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2mm;
+  overflow: visible;
+  pointer-events: none;
+}
+.bh-deco-circle {
+  width: calc(17mm + 72px); height: calc(17mm - 5px);
+  background: #E50036;
+  border: calc(3.6mm - 3px) solid #fff;
+  border-radius: 999px;
+  flex-shrink: 0;
+  transform: translate(calc(4mm + 22px), 3px);
+  position: relative;
+  z-index: 10;
+}
+.bh-deco-circle::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 11px;
+  background: #fff;
+}
+.bh-deco-pill {
+  width: 5.5mm; height: 17mm;
+  background: #E50036;
+  border: 3.6mm solid #fff;
+  border-radius: 3mm;
+  flex-shrink: 0;
+  transform: translateX(4mm);
+}
+
+/* ---- 主体 ---- */
+.bb {        /* badge body — CSS grid: photo | stars+fields+qr */
+  flex: 1;
+  display: grid;
+  grid-template-columns: 25mm 1fr 22mm;
+  grid-template-rows: 11.2mm 1fr;
+  padding: 3mm 2.5mm 2.5mm 2.5mm;
+  column-gap: 2.5mm;
+  row-gap: 1.5mm;
+  background: #fff;
+  min-height: 0;
+}
+
+/* 照片区 — 跨两行，顶部留4mm与星星中线齐 */
+.bb-photo {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  padding-top: calc(2.15mm + 3px);
+  padding-left: 10px;
+  display: flex;
+  flex-direction: column;
+}
+.bb-photo-frame {
+  width: 25mm;
+  height: 35mm;
+  flex-shrink: 0;
+  border: 0.5mm dashed #999;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.bb-photo-frame img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* 虚线交叉框（placeholder）*/
+.bb-photo-frame svg.placeholder-x {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.bb-photo-label {
+  text-align: center;
+  font-size: 2.2mm;
+  color: #888;
+  margin-top: 1mm;
+  writing-mode: horizontal-tb;
+}
+.bb-photo-frame .ph-text {
+  position: absolute;
+  font-size: 2.8mm;
+  color: #aaa;
+  font-weight: 500;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  letter-spacing: 1mm;
+}
+
+/* 信息区（已废弃包装层，改用 grid 直接定位） */
+.bb-info { display: contents; }
+
+/* 五角星 — 跨字段列+二维码列，宽度 = 姓名+二维码，在其正上方 */
+.bb-stars {
+  grid-column: 2 / 4;
+  grid-row: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+}
+.bb-star {
+  width: 11.2mm;
+  height: 11.2mm;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+/* 文字字段 — 字段列，行2，顶部对齐二维码顶部 */
+.bb-fields {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  align-self: end;
+  padding-right: 10%;
+  margin-left: 10px;
+}
+.bb-field {
+  display: flex;
+  align-items: flex-end;
+  margin-bottom: 2.2mm;
+  gap: 0;
+}
+.bb-field-label {
+  font-size: 4.17mm;
+  font-weight: 700;
+  color: #1a1a1a;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+.bb-field-line {
+  flex: 1;
+  border-bottom: 0.5mm solid #1a1a1a;
+  min-width: 10mm;
+  margin-left: 1mm;
+  padding-bottom: 0.5mm;
+  font-size: 3.97mm;
+  font-weight: 600;
+  color: #1a1a1a;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 企微码区 — 二维码列，行2，顶部与姓名对齐 */
+.bb-qr {
+  grid-column: 3;
+  grid-row: 2;
+  align-self: end;
+}
+.bb-qr-frame {
+  width: 22mm;
+  height: 22mm;
+  transform: translate(-10px, 3px);
+  border: 0.5mm dashed #999;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.bb-qr-frame img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.bb-qr-frame svg.placeholder-x {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.bb-qr-frame .ph-text {
+  position: absolute;
+  font-size: 2.8mm;
+  color: #aaa;
+  font-weight: 500;
+}
+.bb-qr-label {
+  position: absolute;
+  bottom: 1.2mm;
+  left: 0; right: 0;
+  text-align: center;
+  font-size: 2.2mm;
+  color: #888;
+  pointer-events: none;
+}
+
+/* ---- 底部红条 ---- */
+.bt {       /* badge bottom */
+  height: 2.9mm;
+  background: #E60036;
+  flex-shrink: 0;
+}
+
+/* ================================================
+   打印样式
+   ================================================ */
+@media print {
+  @page { size: A4 portrait; margin: 5mm 7mm 5mm 7mm; }
+  html, body { margin: 0; padding: 0; background: white !important; }
+  .no-print { display: none !important; }
+  .print-area { display: block !important; }
+  .app-ui { display: none !important; }
+  .badge-page {
+    display: grid !important;
+    grid-template-columns: 96mm 96mm;
+    gap: 2mm 4mm;
+    width: 196mm;
+    padding: 0;
+  }
+  .badge-card {
+    box-shadow: none !important;
+    border: 0.3mm solid #e0e0e0;
+    break-inside: avoid;
+  }
+  /* 强制打印背景色（红色头部/底部） */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+  /* 打印时照片上移4px */
+  .bb-photo {
+    padding-top: calc(2.15mm - 3px) !important;
+  }
+}
+
+/* ================================================
+   应用 UI 样式
+   ================================================ */
+.app-ui {
+  min-height: 100vh;
+  background: #f3f4f6;
+  font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+.card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.drop-zone {
+  border: 2px dashed #E60036;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.drop-zone:hover, .drop-zone.drag-active {
+  background: #fff5f5;
+  border-color: #a00020;
+}
+.badge-preview-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 20px;
+}
+.print-area { display: none; }
+.btn-red {
+  background: #E60036;
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  border: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.2s;
+}
+.btn-red:hover { background: #a00020; }
+.btn-outline {
+  background: #fff;
+  color: #555;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1.5px solid #ddd;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color 0.2s;
+}
+.btn-outline:hover { border-color: #aaa; }
+.prog-bar { transition: width 0.4s ease; }
+</style>
+</head>
+<body>
+
+<!-- ====== 打印区域 ====== -->
+<div class="print-area" id="printArea"></div>
+
+<!-- ====== 主界面 ====== -->
+<div class="app-ui no-print" id="appUI">
+
+  <!-- 导航 -->
+  <header style="background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0;z-index:50;">
+    <div style="max-width:960px;margin:0 auto;padding:0 20px;height:56px;display:flex;align-items:center;justify-content:space-between;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:32px;height:32px;background:#E60036;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:14px;">高</div>
+        <span style="font-weight:700;font-size:16px;color:#1a1a1a;">员工工牌制作系统</span>
+        <span style="font-size:12px;color:#999;">高济药房 · CBWELL PHARMACY</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;" id="navRight">
+        <span id="navInfo" style="display:none;font-size:13px;color:#666;">
+          已加载 <b style="color:#E60036;" id="navCount">0</b> 张工牌
+        </span>
+        <button class="btn-red" id="navPrintBtn" style="display:none;" onclick="doPrint()">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+          </svg>
+          打印工牌
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div style="max-width:960px;margin:0 auto;padding:24px 20px;">
+
+    <!-- 步骤卡片 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px;">
+      <div class="card" style="padding:16px;display:flex;gap:12px;">
+        <div style="width:26px;height:26px;background:#fff0f3;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#E60036;font-size:13px;flex-shrink:0;">1</div>
+        <div>
+          <p style="font-weight:600;font-size:13px;color:#1a1a1a;">准备 Excel 表格</p>
+          <p style="font-size:11px;color:#999;margin-top:4px;">列1姓名·列2职务·列3工号·列4嵌入照片·列5嵌入企微码</p>
+        </div>
+      </div>
+      <div class="card" style="padding:16px;display:flex;gap:12px;">
+        <div style="width:26px;height:26px;background:#fff0f3;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#E60036;font-size:13px;flex-shrink:0;">2</div>
+        <div>
+          <p style="font-weight:600;font-size:13px;color:#1a1a1a;">导入 .xlsx 文件</p>
+          <p style="font-size:11px;color:#999;margin-top:4px;">拖拽或点击上传，自动解析文字 + 嵌入图片</p>
+        </div>
+      </div>
+      <div class="card" style="padding:16px;display:flex;gap:12px;">
+        <div style="width:26px;height:26px;background:#fff0f3;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#E60036;font-size:13px;flex-shrink:0;">3</div>
+        <div>
+          <p style="font-weight:600;font-size:13px;color:#1a1a1a;">打印输出</p>
+          <p style="font-size:11px;color:#999;margin-top:4px;">A4纸·每页8张(2×4)·实际大小·关闭页眉页脚</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 上传区 -->
+    <div class="card" style="margin-bottom:20px;overflow:hidden;" id="uploadCard">
+      <div class="drop-zone" id="dropZone" style="padding:48px 24px;text-align:center;"
+           onclick="fileInput.click()"
+           ondragover="onDragOver(event)"
+           ondragleave="onDragLeave(event)"
+           ondrop="onDrop(event)">
+        <input type="file" id="fileInput" accept=".xlsx" style="display:none;" onchange="onFileSelect(event)">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:14px;">
+          <div style="width:60px;height:60px;background:#fff0f3;border-radius:50%;display:flex;align-items:center;justify-content:center;">
+            <svg width="28" height="28" fill="none" stroke="#E60036" stroke-width="1.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+          </div>
+          <div>
+            <p style="font-size:17px;font-weight:600;color:#1a1a1a;">点击或拖拽上传 Excel 文件</p>
+            <p style="font-size:13px;color:#999;margin-top:6px;">支持 .xlsx 格式，自动提取照片和企业微信二维码</p>
+          </div>
+        </div>
+        <button onclick="downloadTemplate(event)" style="margin-top:12px;display:inline-flex;align-items:center;gap:6px;background:#fff;border:1.5px solid #E60036;color:#E60036;font-size:13px;font-weight:500;padding:7px 18px;border-radius:999px;cursor:pointer;">
+          <svg width="15" height="15" fill="none" stroke="#E60036" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+          下载 Excel 模板
+        </button>
+      </div>
+
+      <!-- 进度 -->
+      <div id="progressWrap" style="display:none;padding:16px 28px 20px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span id="progText" style="font-size:13px;font-weight:500;color:#333;">解析中...</span>
+          <span id="progPct" style="font-size:13px;color:#999;">0%</span>
+        </div>
+        <div style="background:#f0f0f0;border-radius:4px;height:6px;">
+          <div class="prog-bar" id="progBar" style="background:#E60036;height:6px;border-radius:4px;width:0%;"></div>
+        </div>
+        <p id="progDetail" style="font-size:11px;color:#aaa;margin-top:6px;"></p>
+      </div>
+
+      <!-- 错误 -->
+      <div id="errorWrap" style="display:none;padding:0 28px 20px;">
+        <div style="background:#fff0f3;border:1px solid #fcc;border-radius:10px;padding:14px 16px;display:flex;gap:10px;">
+          <svg width="18" height="18" fill="#ef4444" viewBox="0 0 20 20" style="flex-shrink:0;margin-top:1px;">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+          </svg>
+          <div>
+            <p style="font-weight:600;font-size:13px;color:#c00;">解析失败</p>
+            <p id="errorMsg" style="font-size:12px;color:#e55;margin-top:2px;"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 预览区 -->
+    <div id="previewCard" style="display:none;">
+      <!-- 工具栏 -->
+      <div class="card" style="padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div style="display:flex;align-items:center;gap:16px;">
+          <span style="font-weight:700;font-size:15px;color:#1a1a1a;">工牌预览</span>
+          <span style="font-size:13px;color:#999;">共 <b style="color:#E60036;" id="totalNum">0</b> 张 · <b style="color:#555;" id="pageNum">0</b> 页</span>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button class="btn-outline" onclick="fileInput.click()">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+            </svg>
+            重新上传
+          </button>
+          <button class="btn-red" onclick="doPrint()">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+            </svg>
+            打印工牌
+          </button>
+        </div>
+      </div>
+
+      <!-- 打印提示 -->
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;gap:8px;align-items:flex-start;">
+        <svg width="15" height="15" fill="#f59e0b" viewBox="0 0 20 20" style="flex-shrink:0;margin-top:1px;">
+          <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+        </svg>
+        <p style="font-size:12px;color:#92400e;"><b>打印设置：</b>A4纸 · 实际大小(100%) · 关闭页眉页脚 · 不勾选"适应页面" · 每页自动排列 10 张工牌（2列×5行）· 挂卡尺寸 96×55mm</p>
+      </div>
+
+      <!-- 工牌网格 -->
+      <div class="card" style="overflow:hidden;">
+        <div class="badge-preview-grid" id="badgeGrid"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 版权 -->
+  <div style="text-align:center;padding:16px 0 24px;color:#bbb;font-size:12px;">
+    © 2026 高济药房 · 员工工牌制作系统 · 保留所有权利
+  </div>
+
+</div>
+
+<script>
+// ============ 品牌图片 ============
+const BRAND_B64 = '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';
+
+// ============ 职务英文映射 ============
+const POS_EN = {
+  '店长':'Store Manager','副店长':'Asst. Manager','店员':'Store Staff',
+  '药师':'Pharmacist','执业药师':'Pharmacist','收银员':'Cashier',
+  '主任':'Director','经理':'Manager','顾问':'Consultant',
+  '实习生':'Intern','助理':'Assistant','医师':'Doctor',
+};
+function getPosEn(pos) { return POS_EN[pos] || 'Employee'; }
+
+// ============ 全局 ============
+const STAR_B64 = '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';
+const LOGO_B64 = 'PHN2ZyB2ZXJzaW9uPSIxLjIiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDQyMyA3NiIgd2lkdGg9IjQyMyIgaGVpZ2h0PSI3NiI+Cgk8c3R5bGU+CgkJdHNwYW4geyB3aGl0ZS1zcGFjZTpwcmUgfSAKCQkuczAgeyBmaWxsOiAjZmZmZmZmIH0gCgk8L3N0eWxlPgoJPGcgaWQ9IuWbvuWxgiAxIj4KCQk8ZyBpZD0iJmx0O0dyb3VwJmd0OyI+CgkJCTxnIGlkPSImbHQ7R3JvdXAmZ3Q7Ij4KCQkJCTxnIGlkPSImbHQ7R3JvdXAmZ3Q7Ij4KCQkJCQk8ZyBpZD0iJmx0O0dyb3VwJmd0OyI+CgkJCQkJCTxwYXRoIGlkPSImbHQ7Q29tcG91bmQgUGF0aCZndDsiIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xhc3M9InMwIiBkPSJtMjYyLjQ3IDQwLjE5aDE5djI2LjZoLTU2Ljk5di0yNi42aDE4Ljk5djkuOTdjMCA1LjI1IDQuMjYgOS41IDkuNSA5LjUgNS4yNSAwIDkuNS00LjI1IDkuNS05LjV6bTE5LTMwLjM5djI2LjZoLTE5di05Ljk4YzAtNS4yNC00LjI1LTkuNDktOS41LTkuNDktNS4yNCAwLTkuNSA0LjI1LTkuNSA5LjQ5djkuOThoLTE4Ljk5di0yNi42em0tMjIuOCAyNi42aC0xMS4zOXYtOS45OGMwLTMuMTQgMi41NS01LjcgNS43LTUuNyAzLjE0IDAgNS42OSAyLjU2IDUuNjkgNS43em0tMTEuMzkgMy44aDExLjM5djkuOTdjMCAzLjE1LTIuNTUgNS43LTUuNjkgNS43LTMuMTUgMC01LjctMi41NS01LjctNS43eiIvPgoJCQkJCQk8ZyBpZD0iJmx0O0dyb3VwJmd0OyI+CgkJCQkJCQk8ZyBpZD0iJmx0O0dyb3VwJmd0OyI+CgkJCQkJCQkJPHBhdGggaWQ9IiZsdDtDb21wb3VuZCBQYXRoJmd0OyIgZmlsbC1ydWxlPSJldmVub2RkIiBjbGFzcz0iczAiIGQ9Im0zMDMuMjggNDguNzZ2MS4zM3EwIDEuNjUtMC41OSAyLjg1LTAuNiAxLjE4LTEuNTUgMS45OC0wLjk1IDAuNzktMi4xNiAxLjE3LTEuMTggMC4zNi0yLjM5IDAuMzZoLTIuNjd2Ni43OWgtMy45NXYtMjEuMTRoNi42MnExLjE3IDAuMDEgMi4zNiAwLjM3IDEuMiAwLjM4IDIuMTcgMS4xOSAwLjk4IDAuODIgMS41NyAyLjA4IDAuNTkgMS4yNyAwLjU5IDMuMDJ6bS00LjU5LTIuMTlxLTAuNTktMC44LTIuMTgtMC44aC0yLjU5djcuMDJoMi41OXExLjU5IDAuMDEgMi4xOC0wLjgzIDAuNjQtMC45IDAuNjQtMi4xNnYtMS4wN3EwLTEuMy0wLjY0LTIuMTZ6Ii8+CgkJCQkJCQkJPHBhdGggaWQ9IiZsdDtQYXRoJmd0OyIgY2xhc3M9InMwIiBkPSJtMzE1LjM4IDQyLjF2OC44NWgtNS45NXYtOC44NWgtMy45NnYyMS4xNGgzLjk2di04LjU5aDUuOTV2OC41OWgzLjk2di0yMS4xNHoiLz4KCQkJCQkJCQk8cGF0aCBpZD0iJmx0O0NvbXBvdW5kIFBhdGgmZ3Q7IiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGNsYXNzPSJzMCIgZD0ibTMzNi4yNCA2My4yNGgtNC4xbC0wLjgxLTQuMDJoLTUuMzdsLTAuODEgNC4wMmgtNC4xbDQuODgtMjEuMTRoNS40NHptLTcuNjEtMTUuODJsLTEuODcgOC41MWgzLjg5eiIvPgoJCQkJCQkJCTxwYXRoIGlkPSImbHQ7Q29tcG91bmQgUGF0aCZndDsiIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xhc3M9InMwIiBkPSJtMzUxLjUxIDYzLjI0aC00LjMybC0yLjcyLTYuNzloLTIuNTZ2Ni43OWgtMy45NnYtMjEuMTRoNi42MnExLjE3IDAuMDEgMi4zNiAwLjM3IDEuMjEgMC4zOCAyLjE4IDEuMTkgMC45NyAwLjgyIDEuNTcgMi4wOCAwLjU5IDEuMjcgMC41OSAzLjAydjEuMzNxMCAyLjA4LTAuOTIgMy40Ni0wLjggMS4xOS0xLjk2IDEuODl6bS05LjYtMTAuNDRoMi41OXExLjU5IDAgMi4xNy0wLjgzIDAuNjUtMC45IDAuNjQtMi4xN3YtMS4wN3EwLTEuMjktMC42My0yLjE2LTAuNTktMC44LTIuMTgtMC44aC0yLjU5eiIvPgoJCQkJCQkJCTxwYXRoIGlkPSImbHQ7UGF0aCZndDsiIGNsYXNzPSJzMCIgZD0ibTM2Ni4wOSA0Mi4xbC00LjI1IDEwLjI5LTQuMjgtMTAuMjloLTQuMDd2MjEuMTRoMy45MnYtMTEuODdsMy41MyA3Ljg5aDEuODFsMy40OS03Ljg4djExLjg2aDMuOTJ2LTIxLjE0eiIvPgoJCQkJCQkJCTxwYXRoIGlkPSImbHQ7Q29tcG91bmQgUGF0aCZndDsiIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xhc3M9InMwIiBkPSJtMzg3LjA3IDYzLjI0aC00LjFsLTAuODEtNC4wMmgtNS4zOGwtMC44MSA0LjAyaC00LjFsNC44OC0yMS4xNGg1LjQ0em0tNy42LTE1LjgybC0xLjg4IDguNTFoMy45eiIvPgoJCQkJCQkJCTxwYXRoIGlkPSImbHQ7UGF0aCZndDsiIGNsYXNzPSJzMCIgZD0ibTM5Ny41MyA0NS41OGgwLjc5cTAuNDcgMCAwLjc1IDAuMDRsMC40OCAwLjA1di0zLjU1bC0wLjM4LTAuMDVxLTAuNjQtMC4wNy0xLjMyLTAuMTEtMC42OC0wLjA0LTEuMzUtMC4wNC0xLjE2IDAtMi42MiAwLjQtMS41IDAuNDItMi44MSAxLjYzLTEuMzEgMS4yMS0yLjE4IDMuMzgtMC44NSAyLjE3LTAuODUgNS42NyAwIDIuOTYgMC44MiA0Ljk2IDAuODMgMiAyLjE1IDMuMjMgMS4zMyAxLjIyIDIuOTcgMS43MyAxLjYxIDAuNSAzLjE1IDAuNWgwLjg0cTAuNCAwIDAuNjktMC4wNCAwLjMtMC4wNCAwLjUzLTAuMDhsMC4zNi0wLjA1di0zLjUxbC0wLjQ4IDAuMDZxLTAuMzIgMC4wMy0wLjYxIDAuMDUtMC4yOCAwLjAyLTAuNiAwLjAyYy0yLjAyIDAtMy40Ny0wLjU3LTQuNDQtMS43NHEtMS40Ni0xLjc4LTEuNDYtNS4zMSAwLTMuNjYgMS4yNi01LjQ5IDEuMjItMS43NCA0LjMxLTEuNzV6Ii8+CgkJCQkJCQkJPHBhdGggaWQ9IiZsdDtQYXRoJmd0OyIgY2xhc3M9InMwIiBkPSJtNDExLjQxIDQyLjFsLTMuMDIgNy44Ni0zLjAyLTcuODZoLTQuMjFsNS4yOSAxMy4xNnY3Ljk4aDMuOTZ2LTcuOTRsNS4yMS0xMy4yeiIvPgoJCQkJCQkJPC9nPgoJCQkJCQkJPHBhdGggaWQ9IiZsdDtDb21wb3VuZCBQYXRoJmd0OyIgZmlsbC1ydWxlPSJldmVub2RkIiBjbGFzcz0iczAiIGQ9Im0zMDAuMzYgMTMuMzJsMC4zOCAwLjA0djMuNTZsLTAuNDgtMC4wNnEtMC4yOC0wLjAzLTAuNzQtMC4wM2gtMC43OXEtMy4wOSAwLTQuMzEgMS43NS0xLjI3IDEuODMtMS4yNyA1LjQ4IDAgMy41MyAxLjQ3IDUuMzFjMC45NiAxLjE3IDIuNDIgMS43NCA0LjQ0IDEuNzRxMC4zMiAwIDAuNi0wLjAxIDAuMjgtMC4wMiAwLjYtMC4wNmwwLjQ4LTAuMDV2My41bC0wLjM2IDAuMDZxLTAuMjMgMC4wNC0wLjUzIDAuMDgtMC4yOSAwLjA0LTAuNjggMC4wNGgtMC44NXEtMS41NC0wLjAxLTMuMTUtMC41LTEuNjQtMC41MS0yLjk3LTEuNzQtMS4zMi0xLjIzLTIuMTUtMy4yMy0wLjgyLTEuOTktMC44Mi00Ljk1IDAtMy41MSAwLjg2LTUuNjcgMC44Ny0yLjE3IDIuMTctMy4zOCAxLjMxLTEuMjIgMi44MS0xLjYzIDEuNDYtMC40IDIuNjItMC40IDAuNjcgMCAxLjM1IDAuMDMgMC42OCAwLjA0IDEuMzIgMC4xMnptMzUuOSAwLjAzaDQuMDZsLTAuMSAwLjUyYy0wLjcxIDMuNDItMS4zNyA2LjgyLTEuOTUgMTAuMS0wLjU5IDMuMjctMS4yNSA2LjY5LTEuOTYgMTAuMTdsLTAuMDcgMC4zNGgtNC41N2wtMi42LTExLjc4LTIuNiAxMS43OGgtNC41N2wtMC4wNy0wLjM0Yy0wLjctMy40NS0xLjM2LTYuODctMS45Ni0xMC4xNy0wLjU4LTMuMjUtMS4yNC02LjY1LTEuOTUtMTAuMWwtMC4xLTAuNTJoNC4wNmwyLjM1IDE0LjI4IDMuMjEtMTQuMjhoMy4yNmwzLjIxIDE0LjI4em01Ljc4IDBoMTAuMzN2My42NmgtNi40MXY1LjIyaDUuMjN2My42N2gtNS4yM3Y1LjAzaDYuNDF2My41NWgtMTAuMzN6bTE3LjAzIDE3LjU4aDYuNDF2My41NmgtMTAuMzd2LTIxLjE0aDMuOTZ6bTE4LjcxIDB2My41NWgtMTAuMzd2LTIxLjEzaDMuOTV2MTcuNTh6bS02MS40LTExLjIydjguNDJjMCAzLjYtMi45NCA2LjU0LTYuNTQgNi41NGgtMC4yN2MtMy42MSAwLTYuNTUtMi45NC02LjU1LTYuNTR2LTguNDJjMC0zLjYxIDIuOTQtNi41NCA2LjU1LTYuNTRoMC4yN2MzLjYgMCA2LjU0IDIuOTMgNi41NCA2LjU0em0tMy43NyA2LjA0aC01LjgydjIuMzhjMCAxLjUzIDEuMjQgMi43NyAyLjc4IDIuNzdoMC4yN2MxLjUzIDAgMi43Ny0xLjI0IDIuNzctMi43N3ptMC02LjA0YzAtMS41My0xLjI0LTIuNzgtMi43Ny0yLjc4aC0wLjI3Yy0xLjU0IDAtMi43OCAxLjI1LTIuNzggMi43OHYyLjM4aDUuODJ6Ii8+CgkJCQkJCTwvZz4KCQkJCQk8L2c+CgkJCQkJPHBhdGggaWQ9IiZsdDtDb21wb3VuZCBQYXRoJmd0OyIgZmlsbC1ydWxlPSJldmVub2RkIiBjbGFzcz0iczAiIGQ9Im05Mi43NyAzOS44N2g2Ljg2djI2LjVoLTYuODZ6bS0xNC4xOSAwLjNoNi43NHY1LjE0Yy0wLjE5IDUuODktMS4xNyAxMC40My0zIDEzLjg5LTEuOCAzLjI0LTQuNjkgNS43NC04LjU5IDcuNDRsLTAuMjUgMC4xMS0zLjczLTUuODUgMC4zNC0wLjE1YzMuMjUtMS41MSA1LjQ3LTMuNDUgNi41OS01Ljc2IDEuMTQtMi41MSAxLjc4LTUuNzcgMS45LTkuNjl6bS02LjM2IDQuMDdjLTEuNzkgNC45MS01LjM0IDE0LjIzLTkuMDUgMjEuNTlsLTAuMTQgMC4yOC02LjUxLTIuODYgMC4xNi0wLjNjMi45Ni01LjYgNi4zMS0xMy4zNCA5LjItMjEuMjJsMC4xMi0wLjMyIDYuMzMgMi41M3ptMzUuMDMtMTAuMzNsMC40MSAwLjA0LTIuMjIgNi4yNC0wLjI2LTAuMDNjLTYuMzctMC43MS0xMS43NS0yLjI1LTE2LjAxLTQuNTktNC4zNSAyLjI4LTkuNzEgMy45NS0xNS45MyA0Ljk1bC0wLjI1IDAuMDQtMi41MS02LjA1LTUuNzYgMy44OS0wLjE2LTAuMzVjLTEuNDUtMy4xNS0zLjM0LTUuOTgtNi45Ni0xMC40NWwtMC4yMy0wLjI4IDUuNDctMy41NyAwLjE4IDAuMjJjMy4zNSA0IDUuNDEgNi44OCA3LjM0IDEwLjI1bDAuMDcgMC4xMSAwLjM5LTAuMDVjNS4wMy0wLjcxIDkuMTMtMS42NyAxMi41MS0yLjkzLTIuOC0yLjY4LTQuOS01Ljg3LTYuMjYtOS41aC00LjUzdi02LjU2aDEzYy0wLjY3LTEuNDUtMS4zNi0yLjcxLTIuMDktMy44M2wtMC4yNy0wLjQyIDYuNzktMS4yMSAwLjEgMC4yNGMwLjc2IDEuNzYgMS40MSAzLjQ3IDEuOTkgNS4yMmgxMy4yN3Y2LjU2aC00LjNjLTEuMTcgMy42NS0zLjE3IDYuODMtNS45NSA5LjQ0IDMuNDggMS4yOSA3LjU3IDIuMTcgMTIuMTcgMi42MnptLTQ4LjQyLTE4LjU3bC0wLjI1LTAuMjcgNS40Mi0zLjggMC4xOSAwLjJjMy42MyAzLjc3IDUuODIgNi43MSA3Ljk5IDkuOThsMC4xNyAwLjI1LTUuNiA0LjE3LTAuMTgtMC4zMmMtMi4wNi0zLjU1LTQuMy02LjUxLTcuNzQtMTAuMjF6bTM2LjAyIDYuNTFoLTExLjU4YzEuMzYgMi41NiAzLjM2IDQuNzUgNS45NSA2LjUxIDIuNjItMS44NiA0LjQ3LTMuOTkgNS42My02LjUxem01Ni42OS03LjM0aDEwLjg0djYuNDNoLTEwLjg0djMuODZoLTUuMzJsLTAuMDkgMC4zNmMtMC4zOCAxLjU1LTAuODMgMy4wNi0xLjI2IDQuNDdoMTQuNTh2MC4zM2MwIDE2LjUtMC4zIDI2LjgyLTAuOSAzMC42Ni0wLjcgNC4wMi0zLjkxIDYuMDYtOS41NSA2LjA2LTEuNjMgMC00LjUtMC4xMy04LjA5LTAuM2wtMC4yNC0wLjAxLTEuNTUtNi4xNCAxLjc4IDAuMDZjMi43MiAwLjExIDUuMDcgMC4yIDcuMTQgMC4ycTMuNDItMC4wMSA0LjAyLTIuODhjMC4yNS0xLjQ4IDAuNTctNi40NiAwLjY2LTIxLjY2aC0xMC40NGMtMiAzLjg5LTQuNSA3LjM5LTcuNDQgMTAuMzhsLTAuMjYgMC4yNy00LjAyLTUuMTUgMC4xOS0wLjIxYzQuMzktNC42MiA3LjI4LTEwLjE0IDguODQtMTYuOWwwLjA3LTAuMjggNC45NiAwLjU2di0zLjY4aC0xMy40NXYzLjk4aC02LjA5bDEuNTggMC43My0wLjE1IDAuM2MtMi4xNCA0LjIyLTQuMzMgNy44Ny02LjUyIDEwLjg3bDQuMzQtMC42YzAuOTMtMS41NiAyLjEzLTMuNjEgMy4zNC01LjgybDAuMTQtMC4yNiA1LjUxIDIuNDQtMC4xOSAwLjMyYy00LjE4IDYuOTUtNy44MyAxMi4zLTEwLjg4IDE1LjkzIDIuOTEtMC42NyA1Ljk4LTEuNTggOS4zMy0yLjc5bDAuNDQtMC4xNXY2LjA2bC0wLjIzIDAuMDdjLTUuNzUgMS44Ni0xMS4zMiAzLjE0LTE2LjU0IDMuODFsLTAuMjggMC4wNC0xLjUxLTUuOSAwLjI0LTAuMTJxMS4zOC0wLjY1IDIuMjEtMS42MSAxLjk5LTEuOTMgNC43NC02LjA0bC03LjE2IDEuMDgtMS4yMy01LjQyIDAuMjItMC4xMXEwLjkxLTAuNDggMS44My0xLjg4YzIuNjMtMy44IDQuOTQtNy45NiA2Ljg3LTEyLjM3bDAuMTMtMC4zIDIuOTQgMS4zNHYtMy42aC0xMi4xM3YtNi40M2gxMi4xM3YtNC40Nmg2LjkydjQuNDZoMTMuNDV2LTQuNDZoNi45MnptLTE5LjM0IDQxLjcybDAuNDItMC4xMXY2LjMzbC0wLjI0IDAuMDdjLTYuOCAyLjAyLTEwLjg2IDIuODctMTguOTEgMy45OGwtMC4zMiAwLjA0LTAuODctNi41NSAwLjMzLTAuMDRjOC42OC0xLjA3IDEzLjA3LTEuOTEgMTkuNTktMy43MnptNjEtMTIuODdxLTAuMTYgMS44LTAuNDUgMy41MWgxOS44MmwtMC4wMiAwLjM0Yy0wLjM0IDguMjEtMC44MSAxMy41OS0xLjM0IDE1LjE1cS0wLjg3IDIuMzItMy40IDMuMWMtMS43NiAwLjUyLTUuNjcgMC44LTExLjMxIDAuOGgtMC44NGwtMS45LTYuMzYgMC40OCAwLjA1YzEuMzUgMC4xMiAyLjU5IDAuMTggMy44OSAwLjE4IDIuNjMgMCA0LjY3LTAuMTUgNS41OC0wLjQxcTAuOTMtMC4zMSAxLjIzLTEuMDhjMC4wOS0wLjUxIDAuMjctMi4zNyAwLjU1LTUuNDZoLTE0LjYxYy0yLjU4IDUuNzMtNi45NiAxMC4yLTEzLjAyIDEzLjI4bC0wLjI2IDAuMTQtMy43OS02LjA1IDAuMzMtMC4xNWM3LjE4LTMuMyAxMS4yMi05LjAzIDEyLjAxLTE3LjA0aC03LjM0di02LjU1aDE0LjU4Yy0wLjQ2LTEuMTktMC44Ny0yLjE4LTEuMzItMy4wOWwtMC4yLTAuNCA2Ljg1LTEuMTFoLTIxLjU5djQuMDhjLTAuMDYgMTEuNjctMi43MSAyMS44Mi03Ljg5IDMwLjE4bC0wLjIgMC4zMy01LjE5LTQuNjYgMC4xNC0wLjIzYzQuMDMtNi41MSA2LjEtMTUuMTMgNi4xNi0yNS42MnYtMjIuMDhoMTguMjZxLTAuNTktMS41Ni0xLjM5LTMuMTVsLTAuMi0wLjM5IDcuNTEtMS4yIDAuMSAwLjI1cTAuODEgMi4xNyAxLjU1IDQuNDloMTguNDN2MThoLTE1LjExbDAuMDYgMC4xN2MwLjQyIDEuMjMgMC44NyAyLjY4IDEuMzggNC40M2gxNS44NXY2LjU1em0xNC4zNi0xNy41OHYtNS4wOGgtMzAuNDN2NS4wOHptLTE2NS43OCAxMS41OWgxMC4xMXYyMi42MmMwIDIuMjgtMC45MSA2LjExLTcgNi4xMWgtNC43OWwtMS43OC02LjU0IDUuMTMgMC4xOWMxLjYgMCAxLjYtMC41NCAxLjYtMC44di0xNS4xOWgtMy4yN3Y0LjVjMCA1Ljk1LTQuODUgMTAuOC0xMC44MSAxMC44LTUuOTUgMC0xMC44LTQuODUtMTAuOC0xMC44di00LjVoLTMuMjd2MjIuNDloLTYuODR2LTI4Ljg4aDEwLjExdi00LjczYzAtNS45NSA0Ljg1LTEwLjggMTAuOC0xMC44IDUuOTYgMCAxMC44MSA0Ljg1IDEwLjgxIDEwLjh6bS02LjQ2IDYuNGgtOC43djQuNDljMCAyLjQgMS45NiA0LjM1IDQuMzUgNC4zNSAyLjQgMCA0LjM1LTEuOTUgNC4zNS00LjM1em0wLTExLjEyYzAtMi40LTEuOTUtNC4zNS00LjM1LTQuMzUtMi4zOSAwLTQuMzUgMS45NS00LjM1IDQuMzV2NC43Mmg4Ljd6bS0wLjctMTguNjNoMTkuMjl2Ni42OWgtNDUuOTJ2LTYuNjloMTguNzlxLTAuMzgtMC44NC0wLjc2LTEuNTFsLTAuNjctMS4yIDcuOTYtMS4zNiAwLjI3IDAuNzljMC4zMyAxIDAuNyAyLjEyIDEuMDQgMy4yOHptMTA3Ljk4IDI5LjA5cTAuNzcgMC43IDEuNjggMS43NCAwLjkyIDEuMDMgMS45OSAyLjM0IDIuMzQgMi43NSAzLjMzIDQuMzJsLTQuNjkgNC4wOXEtMC41NC0wLjg5LTEuMzQtMi4wMi0wLjgtMS4xMy0xLjg3LTIuNDktMS4wNi0xLjM3LTEuOTMtMi40LTAuODYtMS4wMy0xLjUyLTEuNzJ6Ii8+CgkJCQk8L2c+CgkJCTwvZz4KCQk8L2c+Cgk8L2c+Cjwvc3ZnPg==';
+let employees = [];
+
+// ============ 拖拽 ============
+function onDragOver(e) { e.preventDefault(); document.getElementById('dropZone').classList.add('drag-active'); }
+function onDragLeave() { document.getElementById('dropZone').classList.remove('drag-active'); }
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('drag-active');
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.toLowerCase().endsWith('.xlsx')) processFile(f);
+  else showErr('请上传 .xlsx 格式的 Excel 文件');
+}
+function onFileSelect(e) { const f = e.target.files[0]; if (f) processFile(f); e.target.value=''; }
+
+// ============ 进度 ============
+function setProg(pct, text, detail) {
+  document.getElementById('progBar').style.width = pct + '%';
+  document.getElementById('progPct').textContent = pct + '%';
+  if (text) document.getElementById('progText').textContent = text;
+  if (detail) document.getElementById('progDetail').textContent = detail;
+}
+function showErr(msg) {
+  document.getElementById('progressWrap').style.display = 'none';
+  document.getElementById('errorWrap').style.display = 'block';
+  document.getElementById('errorMsg').textContent = msg;
+}
+
+// ============ 处理文件 ============
+async function processFile(file) {
+  document.getElementById('errorWrap').style.display = 'none';
+  document.getElementById('previewCard').style.display = 'none';
+  document.getElementById('progressWrap').style.display = 'block';
+  setProg(5, '读取文件...', '加载 Excel 内容');
+
+  try {
+    const buf = await file.arrayBuffer();
+
+    setProg(15, '解析文本数据...', '提取姓名、职务、工号');
+    const wb = XLSX.read(buf, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+    let dataRows = allRows;
+    if (allRows.length > 0) {
+      const first = allRows[0].map(c => String(c));
+      const isHeader = first.some(c => ['姓名','职务','工号','名字'].some(k => c.includes(k)));
+      if (isHeader) dataRows = allRows.slice(1);
+    }
+    dataRows = dataRows.filter(r => String(r[0]||'').trim() || String(r[1]||'').trim() || String(r[2]||'').trim());
+
+    setProg(30, '提取嵌入图片...', `找到 ${dataRows.length} 名员工`);
+
+    const zip = await JSZip.loadAsync(buf);
+    const allFiles = Object.keys(zip.files);
+    const mediaFiles = {};
+    const mediaEntries = allFiles.filter(f => /xl[\\/]media[\\/]/i.test(f));
+    setProg(45, '提取图片中...', `共 ${mediaEntries.length} 张图片`);
+
+    for (const mp of mediaEntries) {
+      const b64 = await zip.files[mp].async('base64');
+      const ext = mp.split('.').pop().toLowerCase();
+      const mime = (ext==='jpg'||ext==='jpeg') ? 'image/jpeg' : ext==='png' ? 'image/png' : 'image/'+ext;
+      const fname = mp.replace(/\\/g,'/').split('/').pop();
+      mediaFiles[fname] = `data:${mime};base64,${b64}`;
+    }
+
+    setProg(62, '解析图片位置...', '读取绘图 XML');
+    const imgMap = await parseDrawing(zip, mediaFiles);
+    console.log('[imgMap] keys:', Object.keys(imgMap).length);
+
+    setProg(82, '组装工牌数据...', '');
+    employees = dataRows.map((row, i) => ({
+      name:       String(row[0]||'').trim(),
+      position:   String(row[1]||'').trim(),
+      employeeId: String(row[2]||'').trim(),
+      photo:  imgMap['photo_'+i] || null,
+      qrcode: imgMap['qr_'+i]    || null,
+    }));
+
+    setProg(95, '渲染工牌...', '');
+    await tick();
+    renderAll(employees);
+    setProg(100, '完成！', `共 ${employees.length} 张工牌`);
+    await tick(350);
+
+    document.getElementById('progressWrap').style.display = 'none';
+    document.getElementById('previewCard').style.display = 'block';
+    document.getElementById('navInfo').style.display = 'inline';
+    document.getElementById('navCount').textContent = employees.length;
+    document.getElementById('navPrintBtn').style.display = 'flex';
+
+  } catch(err) {
+    console.error(err);
+    showErr('文件解析失败：' + err.message);
+  }
+}
+
+// ============ 解析 Drawing XML ============
+async function parseDrawing(zip, mediaFiles) {
+  const imgMap = {};
+  const allFiles = Object.keys(zip.files);
+  const drawingFiles = allFiles.filter(f =>
+    /xl[\\/]drawings[\\/]drawing\d+\.xml$/i.test(f) && !f.includes('_rels')
+  );
+
+  for (const drawPath of drawingFiles) {
+    const drawXml = await zip.files[drawPath].async('text');
+    const relsPath = drawPath.replace(/[\\/]([^\\/]+)$/, '/_rels/$1.rels').replace(/\\/g,'/');
+    const relsFile = zip.files[relsPath];
+    const rIdMap = {};
+
+    if (relsFile) {
+      const relsXml = await relsFile.async('text');
+      // 逐元素解析（属性顺序不固定）
+      const re = /<Relationship\s[^>]*\/>/g;
+      let m;
+      while ((m = re.exec(relsXml)) !== null) {
+        const elem = m[0];
+        const idM     = elem.match(/\bId="([^"]+)"/);
+        const targetM = elem.match(/\bTarget="([^"]+)"/);
+        if (!idM || !targetM) continue;
+        const fname = targetM[1].replace(/\\/g,'/').split('/').pop();
+        if (mediaFiles[fname]) rIdMap[idM[1]] = mediaFiles[fname];
+      }
+    }
+
+    const anchorRe = /<oneCellAnchor>([\s\S]*?)<\/oneCellAnchor>/g;
+    let am;
+    while ((am = anchorRe.exec(drawXml)) !== null) {
+      const body = am[1];
+      const fromBlock = body.match(/<from>([\s\S]*?)<\/from>/);
+      if (!fromBlock) continue;
+      const colM  = fromBlock[1].match(/<col>(\d+)<\/col>/);
+      const rowM  = fromBlock[1].match(/<row>(\d+)<\/row>/);
+      const embedM = body.match(/r:embed="([^"]+)"/);
+      if (!colM || !rowM || !embedM) continue;
+
+      const col = parseInt(colM[1]);
+      const row = parseInt(rowM[1]);
+      const img = rIdMap[embedM[1]];
+      const empIdx = row - 1; // row=1→emp[0]（有表头时）
+
+      if (img && empIdx >= 0) {
+        if (col === 3) imgMap['photo_'+empIdx] = img;
+        else if (col === 4) imgMap['qr_'+empIdx] = img;
+        else if (col === 2) imgMap['photo_'+empIdx] = img;
+        else if (col === 5) imgMap['qr_'+empIdx] = img;
+      }
+    }
+
+    // 降级：顺序分配
+    if (Object.keys(imgMap).length === 0) {
+      const embeds = [...drawXml.matchAll(/r:embed="([^"]+)"/g)];
+      let idx = 0;
+      for (const [, rId] of embeds) {
+        const img = rIdMap[rId];
+        if (!img) continue;
+        const empIdx = Math.floor(idx / 2);
+        if (idx % 2 === 0) imgMap['photo_'+empIdx] = img;
+        else               imgMap['qr_'+empIdx]    = img;
+        idx++;
+      }
+    }
+  }
+  return imgMap;
+}
+
+// ============ 生成工牌卡片 ============
+function makeBadge(emp) {
+  const posEn = getPosEn(emp.position);
+  // 角标统一显示"店长"（品牌标识），实际职务在工牌正文体现
+  const roleCnDisplay = '店长';
+  const roleEnDisplay = 'Store Manager';
+
+  // 照片区
+  const photoHtml = emp.photo
+    ? `<img src="${emp.photo}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;" alt="照片">`
+    : `<svg class="placeholder-x" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <line x1="0" y1="0" x2="100" y2="100" stroke="#ccc" stroke-width="1.2"/>
+        <line x1="100" y1="0" x2="0" y2="100" stroke="#ccc" stroke-width="1.2"/>
+      </svg>
+      <span class="ph-text">一寸照</span>`;
+
+  // 二维码区
+  const qrHtml = emp.qrcode
+    ? `<img src="${emp.qrcode}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;" alt="二维码">`
+    : `<svg class="placeholder-x" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <line x1="0" y1="0" x2="100" y2="100" stroke="#ccc" stroke-width="1.2"/>
+        <line x1="100" y1="0" x2="0" y2="100" stroke="#ccc" stroke-width="1.2"/>
+      </svg>
+      <span class="ph-text">企微码</span>`;
+
+  const div = document.createElement('div');
+  div.className = 'badge-card';
+  div.innerHTML = `
+    <!-- 头部 -->
+    <div class="bh">
+      <!-- 职位徽章：上半截白色圆角矩形上移6px，下半截红色顶层 -->
+      <div class="bh-role">
+        <div class="bh-role-top">
+          <div class="bh-role-crown">
+            <svg viewBox="0 0 56 40" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="#E60036" stroke-linejoin="round" stroke-linecap="round">
+              <rect x="6" y="28" width="44" height="8" rx="2" stroke-width="2.5"/>
+              <path d="M6 28 L6 16 L18 24 L28 6 L38 24 L50 16 L50 28 Z" stroke-width="2.5"/>
+              <circle cx="28" cy="6"  r="3.5" stroke-width="2"/>
+              <circle cx="6"  cy="16" r="2.5" stroke-width="2"/>
+              <circle cx="50" cy="16" r="2.5" stroke-width="2"/>
+            </svg>
+          </div>
+          <div class="bh-role-cn">${esc(roleCnDisplay)}</div>
+        </div>
+        <div class="bh-role-bottom">
+          <div class="bh-role-en">${esc(roleEnDisplay)}</div>
+        </div>
+      </div>
+      <img class="bh-brand-img" src="" style="height:8mm;object-fit:contain;flex-shrink:0;margin-left:2mm;position:relative;z-index:20;" alt="brand">
+      <img class="bh-logo" src="" alt="logo">
+      <!-- 装饰 -->
+      <div class="bh-deco">
+        <div class="bh-deco-circle"></div>
+        <div class="bh-deco-pill"></div>
+      </div>
+    </div>
+
+    <!-- 主体（CSS grid: 照片 | 星星跨2列 / 字段 | 二维码） -->
+    <div class="bb">
+      <!-- 照片（col1，跨两行） -->
+      <div class="bb-photo">
+        <div class="bb-photo-frame" ${emp.photo ? 'style="border-color:transparent"' : ''} >${photoHtml}</div>
+      </div>
+
+      <!-- 五角星（col2-3，row1，宽度=姓名+二维码） -->
+      <div class="bb-stars">
+        <img class="bb-star" src="data:image/png;base64,${STAR_B64}" alt="★">
+        <img class="bb-star" src="data:image/png;base64,${STAR_B64}" alt="★">
+        <img class="bb-star" src="data:image/png;base64,${STAR_B64}" alt="★">
+        <img class="bb-star" src="data:image/png;base64,${STAR_B64}" alt="★">
+        <img class="bb-star" src="data:image/png;base64,${STAR_B64}" alt="★">
+      </div>
+
+      <!-- 字段（col2，row2） -->
+      <div class="bb-fields">
+        <div class="bb-field">
+          <span class="bb-field-label">姓名:</span>
+          <span class="bb-field-line">${esc(emp.name)}</span>
+        </div>
+        <div class="bb-field">
+          <span class="bb-field-label">职务:</span>
+          <span class="bb-field-line">${esc(emp.position)}</span>
+        </div>
+        <div class="bb-field" style="margin-bottom:0;">
+          <span class="bb-field-label">工号:</span>
+          <span class="bb-field-line">${esc(emp.employeeId)}</span>
+        </div>
+      </div>
+
+      <!-- 企微码（col3，row2，label在虚线框内） -->
+      <div class="bb-qr">
+        <div class="bb-qr-frame" ${emp.qrcode ? 'style="border-color:transparent"' : ''} >
+          ${qrHtml}
+          ${!emp.qrcode ? '<div class="bb-qr-label">企微码</div>' : ''}
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部红条 -->
+    <div class="bt"></div>`;
+  div.querySelector('.bh-brand-img').src = 'data:image/png;base64,' + BRAND_B64;
+  const logoEl = div.querySelector('.bh-logo');
+  logoEl.src = 'data:image/svg+xml;base64,' + LOGO_B64;
+  Object.assign(logoEl.style, {
+    position: 'absolute',
+    left: '16mm',
+    top: '10px',
+    height: '6.93mm',
+    width: 'auto',
+    objectFit: 'contain',
+    zIndex: '200'
+  });
+  return div;
+}
+
+// ============ 渲染 ============
+function renderAll(emps) {
+  const grid = document.getElementById('badgeGrid');
+  grid.innerHTML = '';
+  emps.forEach(e => grid.appendChild(makeBadge(e)));
+  document.getElementById('totalNum').textContent = emps.length;
+  document.getElementById('pageNum').textContent = Math.ceil(emps.length / 10);
+}
+
+// ============ 打印 ============
+function doPrint() {
+  const printArea = document.getElementById('printArea');
+  printArea.innerHTML = '';
+  const perPage = 10;
+  const pages = Math.ceil(employees.length / perPage);
+
+  for (let p = 0; p < pages; p++) {
+    const pageDiv = document.createElement('div');
+    pageDiv.className = 'badge-page';
+    if (p < pages - 1) pageDiv.style.pageBreakAfter = 'always';
+    const slice = employees.slice(p * perPage, (p + 1) * perPage);
+    slice.forEach(e => pageDiv.appendChild(makeBadge(e)));
+    for (let i = slice.length; i < perPage; i++) {
+      const blank = document.createElement('div');
+      blank.className = 'badge-card';
+      blank.style.visibility = 'hidden';
+      pageDiv.appendChild(blank);
+    }
+    printArea.appendChild(pageDiv);
+  }
+  window.print();
+}
+
+// ============ 工具 ============
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function tick(ms=0) { return new Promise(r => setTimeout(r, ms)); }
+
+function downloadTemplate(e) {
+  e.stopPropagation();
+  const wb = XLSX.utils.book_new();
+  const data = [
+    ['姓名', '职务', '工号', '照片（在此列嵌入一寸照）', '企微码（在此列嵌入二维码图片）'],
+    ['张三', '店长', '001', '', ''],
+    ['李四', '店员', '002', '', ''],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 24 }, { wch: 24 }];
+  XLSX.utils.book_append_sheet(wb, ws, '员工信息');
+  XLSX.writeFile(wb, '工牌信息模板.xlsx');
+}
+</script>
+</body>
+</html>
