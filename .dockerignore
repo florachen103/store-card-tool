@@ -6,3 +6,11 @@ __pycache__
 node_modules
 dist
 build
+
+# large / local test files
+cdr_extract
+output
+input
+emb_*.png
+card_demo.png
+*.pdf
