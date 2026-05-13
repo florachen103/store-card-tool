@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import io
 import math
+import tempfile
 import time
 import uuid
 import zipfile
@@ -25,7 +26,7 @@ from excel_image_extractor import extract_images_from_excel
 app = Flask(__name__)
 
 ARTIFACTS: dict[str, dict] = {}
-TMP_PREVIEW_PATH = Path("/private/tmp/store-card-latest-preview.html")
+TMP_PREVIEW_PATH = Path(tempfile.gettempdir()) / "store-card-latest-preview.html"
 BRAND_B64 = base64.b64encode((Path(__file__).resolve().parent / "assets" / "brand_live.png").read_bytes()).decode()
 LOGO_B64 = base64.b64encode((Path(__file__).resolve().parent / "assets" / "logo_live.svg").read_bytes()).decode()
 STAR_SRC = browser_export._load_star_b64()
