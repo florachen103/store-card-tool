@@ -27,10 +27,10 @@ app = Flask(__name__)
 
 ARTIFACTS: dict[str, dict] = {}
 TMP_PREVIEW_PATH = Path(tempfile.gettempdir()) / "store-card-latest-preview.html"
-BRAND_B64 = base64.b64encode((Path(__file__).resolve().parent / "assets" / "brand_live.png").read_bytes()).decode()
 LOGO_B64 = base64.b64encode((Path(__file__).resolve().parent / "assets" / "logo_live.svg").read_bytes()).decode()
 STAR_SRC = browser_export._load_star_b64()
 CENTER_BG_B64 = base64.b64encode((Path(__file__).resolve().parent / "assets" / "card_center_bg.png").read_bytes()).decode()
+SLOGAN_B64 = base64.b64encode((Path(__file__).resolve().parent / "assets" / "huyou_da_jiankang_calligraphy_vector.svg").read_bytes()).decode()
 
 
 INDEX_HTML = """
@@ -251,6 +251,101 @@ INDEX_HTML = """
       font-size: 13px;
       color: #999;
     }
+    .template-controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .template-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #555;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .choice-control {
+      position: relative;
+    }
+    .choice-trigger {
+      height: 32px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #fff;
+      color: #1a1a1a;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 0 30px 0 10px;
+      cursor: pointer;
+      min-width: 76px;
+      text-align: left;
+      position: relative;
+    }
+    .choice-trigger::after {
+      content: '';
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      width: 7px;
+      height: 7px;
+      border-right: 1.5px solid #555;
+      border-bottom: 1.5px solid #555;
+      transform: translateY(-65%) rotate(45deg);
+    }
+    .choice-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      z-index: 1000;
+      min-width: 100%;
+      padding: 6px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+    }
+    .choice-control.open .choice-menu {
+      display: grid;
+      gap: 3px;
+    }
+    .choice-option {
+      border: 0;
+      background: transparent;
+      color: #1a1a1a;
+      border-radius: 8px;
+      height: 30px;
+      padding: 0 28px 0 10px;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+      position: relative;
+    }
+    .choice-option:hover {
+      background: #fff0f3;
+      color: #E60036;
+    }
+    .choice-option.is-selected {
+      background: #E60036;
+      color: #fff;
+    }
+    .choice-option.is-selected::before {
+      content: '';
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      width: 6px;
+      height: 11px;
+      border-right: 2px solid #fff;
+      border-bottom: 2px solid #fff;
+      transform: translateY(-62%) rotate(45deg);
+    }
+    .choice-option.is-selected {
+      padding-left: 28px;
+    }
     .print-tip {
       background: #fffbeb;
       border: 1px solid #fde68a;
@@ -263,14 +358,45 @@ INDEX_HTML = """
     }
     .preview-shell {
       overflow: hidden;
-      padding: 20px;
+      padding: 18px;
+      background: #eef0f4;
     }
     .badge-preview-grid {
       display: flex;
-      flex-wrap: wrap;
-      gap: 16px;
-      align-items: flex-start;
+      flex-direction: column;
+      gap: 18px;
+      align-items: center;
       justify-content: center;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .preview-a4-wrap {
+      width: max-content;
+    }
+    .preview-a4-label {
+      margin: 0 0 8px;
+      color: #6b7280;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .preview-a4-page {
+      width: 210mm;
+      height: 297mm;
+      padding: 5mm 7mm;
+      background: #fff;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+      box-sizing: border-box;
+    }
+    .preview-a4-grid {
+      display: grid;
+      grid-template-columns: 86mm 86mm;
+      gap: 2mm 4mm;
+      width: 176mm;
+      margin: 0 auto;
+    }
+    .preview-a4-page .badge-card {
+      box-shadow: none;
+      border: 0.3mm solid #e0e0e0;
     }
     .actions {
       margin-top: 14px;
@@ -286,8 +412,8 @@ INDEX_HTML = """
     }
     .print-area { display: none; }
     .badge-card {
-      width: 96mm;
-      height: 55mm;
+      width: 86mm;
+      height: 54mm;
       background: #fff;
       overflow: hidden;
       display: flex;
@@ -296,11 +422,17 @@ INDEX_HTML = """
       flex-shrink: 0;
       box-shadow: 0 2px 8px rgba(0,0,0,0.18);
     }
+    .badge-card.staff-card .bh-role {
+      display: none;
+    }
+    .badge-card.staff-card .bh-logo {
+      left: 3mm;
+    }
     .badge-card-bg {
       position: absolute;
       left: 50%;
       top: 50%;
-      width: 50.4mm;
+      width: 45.5mm;
       height: auto;
       transform: translate(calc(-50% - 5px), calc(-50% + 10px));
       opacity: 0.56;
@@ -370,19 +502,11 @@ INDEX_HTML = """
       white-space: nowrap;
       letter-spacing: 0.1mm;
     }
-    .bh-brand-img {
-      height: 8mm;
-      object-fit: contain;
-      flex-shrink: 0;
-      margin-left: 2mm;
-      position: relative;
-      z-index: 20;
-    }
     .bh-logo {
       position: absolute;
-      left: 16mm;
+      left: 14.2mm;
       top: 10px;
-      height: 6.93mm;
+      height: 6.55mm;
       width: auto;
       object-fit: contain;
       z-index: 200;
@@ -392,7 +516,7 @@ INDEX_HTML = """
       right: 0;
       top: 0;
       height: 11.3mm;
-      width: 30mm;
+      width: 24mm;
       display: flex;
       align-items: center;
       justify-content: flex-end;
@@ -401,15 +525,21 @@ INDEX_HTML = """
       pointer-events: none;
     }
     .bh-deco-circle {
-      width: calc(17mm + 72px);
+      width: calc(14.5mm + 58px);
       height: calc(17mm - 5px);
-      background: #E50036;
-      border: calc(3.6mm - 3px) solid #fff;
+      background: #fff;
       border-radius: 999px;
       flex-shrink: 0;
-      transform: translate(calc(4mm + 22px), 3px);
+      transform: translate(calc(4mm + 18px), 3px);
       position: relative;
       z-index: 10;
+    }
+    .bh-deco-circle::before {
+      content: '';
+      position: absolute;
+      inset: calc(3.6mm - 3px);
+      background: #E50036;
+      border-radius: inherit;
     }
     .bh-deco-circle::after {
       content: '';
@@ -424,20 +554,27 @@ INDEX_HTML = """
     .bh-deco-pill {
       width: 5.5mm;
       height: 17mm;
-      background: #E50036;
-      border: 3.6mm solid #fff;
+      background: #fff;
       border-radius: 3mm;
       flex-shrink: 0;
       transform: translateX(4mm);
+      position: relative;
+    }
+    .bh-deco-pill::before {
+      content: '';
+      position: absolute;
+      inset: 3.6mm;
+      background: #E50036;
+      border-radius: calc(3mm - 1mm);
     }
     .bb {
       flex: 1;
       display: grid;
       grid-template-columns: 25mm 1fr 22mm;
       grid-template-rows: 11.2mm 1fr;
-      padding: 3mm 2.5mm 2.5mm 2.5mm;
-      column-gap: 2.5mm;
-      row-gap: 1.5mm;
+      padding: 2.8mm 2.1mm 2.2mm 2.1mm;
+      column-gap: 1.6mm;
+      row-gap: 1.2mm;
       background: transparent;
       min-height: 0;
       position: relative;
@@ -447,7 +584,7 @@ INDEX_HTML = """
       grid-column: 1;
       grid-row: 1 / 3;
       padding-top: calc(2.15mm + 3px);
-      padding-left: 10px;
+      padding-left: 4px;
       display: flex;
       flex-direction: column;
     }
@@ -462,13 +599,20 @@ INDEX_HTML = """
       justify-content: center;
       overflow: hidden;
     }
-    .bb-photo-frame img,
-    .bb-qr-frame img {
+    .bb-photo-frame img {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
+      display: block;
+    }
+    .bb-qr-frame img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
       display: block;
     }
     .bb-photo-frame svg.placeholder-x,
@@ -493,13 +637,23 @@ INDEX_HTML = """
       display: flex;
       justify-content: center;
       align-items: center;
-      gap: 3px;
+      gap: 2px;
+    }
+    .bb-stars.slogan-mode {
+      justify-content: center;
+      padding: 0 2mm;
     }
     .bb-star {
-      width: 11.2mm;
-      height: 11.2mm;
+      width: 9.8mm;
+      height: 9.8mm;
       object-fit: contain;
       flex-shrink: 0;
+    }
+    .bb-slogan-img {
+      width: 45mm;
+      max-height: 8.6mm;
+      object-fit: contain;
+      display: block;
     }
     .bb-fields {
       grid-column: 2;
@@ -508,17 +662,17 @@ INDEX_HTML = """
       flex-direction: column;
       gap: 0;
       align-self: end;
-      padding-right: 10%;
-      margin-left: 10px;
+      padding-right: 4%;
+      margin-left: 4px;
     }
     .bb-field {
       display: flex;
       align-items: flex-end;
-      margin-bottom: 2.2mm;
+      margin-bottom: 1.8mm;
       gap: 0;
     }
     .bb-field-label {
-      font-size: 4.17mm;
+      font-size: 3.65mm;
       font-weight: 700;
       color: #1a1a1a;
       white-space: nowrap;
@@ -528,10 +682,10 @@ INDEX_HTML = """
     .bb-field-line {
       flex: 1;
       border-bottom: 0.5mm solid #1a1a1a;
-      min-width: 10mm;
-      margin-left: 1mm;
-      padding-bottom: 0.5mm;
-      font-size: 3.97mm;
+      min-width: 6mm;
+      margin-left: 0.7mm;
+      padding-bottom: 0.35mm;
+      font-size: 3.45mm;
       font-weight: 600;
       color: #1a1a1a;
       line-height: 1.2;
@@ -547,7 +701,7 @@ INDEX_HTML = """
     .bb-qr-frame {
       width: 22mm;
       height: 22mm;
-      transform: translate(-10px, 3px);
+      transform: translate(-4px, 3px);
       border: 0.5mm dashed #999;
       position: relative;
       display: flex;
@@ -590,9 +744,10 @@ INDEX_HTML = """
       .page { display: none !important; }
       .badge-page {
         display: grid !important;
-        grid-template-columns: 96mm 96mm;
+        grid-template-columns: 86mm 86mm;
         gap: 2mm 4mm;
-        width: 196mm;
+        width: 176mm;
+        margin: 0 auto;
         padding: 0;
       }
       .badge-card {
@@ -609,7 +764,10 @@ INDEX_HTML = """
     }
     @media (max-width: 900px) {
       .step-grid { grid-template-columns: 1fr; }
-      .badge-preview-grid { justify-content: center; }
+      .badge-preview-grid {
+        align-items: flex-start;
+        justify-content: flex-start;
+      }
     }
   </style>
 </head>
@@ -645,7 +803,7 @@ INDEX_HTML = """
         <div class="step-index">3</div>
         <div>
           <p class="step-title">打印输出</p>
-          <p class="step-desc">A4纸·每页8张(2×4)·实际大小·关闭页眉页脚</p>
+          <p class="step-desc">A4纸·每页10张(2×5)·实际大小·关闭页眉页脚</p>
         </div>
       </div>
     </section>
@@ -703,14 +861,38 @@ INDEX_HTML = """
           <span class="preview-title">工牌预览</span>
           <span class="preview-meta">共 <b style="color:#E60036;" id="totalNum">0</b> 张 · <b style="color:#555;" id="pageNum">0</b> 页</span>
         </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <div class="template-controls">
+          <label class="template-control">
+            角色
+            <div class="choice-control" data-choice="role">
+              <button class="choice-trigger" type="button" data-choice-trigger>店长</button>
+              <div class="choice-menu">
+                <button class="choice-option is-selected" type="button" data-value="manager">店长</button>
+                <button class="choice-option" type="button" data-value="staff">店员</button>
+              </div>
+            </div>
+          </label>
+          <label class="template-control">
+            星级
+            <div class="choice-control" data-choice="stars">
+              <button class="choice-trigger" type="button" data-choice-trigger>五星</button>
+              <div class="choice-menu">
+                <button class="choice-option is-selected" type="button" data-value="5">五星</button>
+                <button class="choice-option" type="button" data-value="4">四星</button>
+                <button class="choice-option" type="button" data-value="3">三星</button>
+                <button class="choice-option" type="button" data-value="2">二星</button>
+                <button class="choice-option" type="button" data-value="1">一星</button>
+                <button class="choice-option" type="button" data-value="0">无星</button>
+              </div>
+            </div>
+          </label>
           <button class="btn-outline" id="reuploadBtn" type="button">重新上传</button>
           <button class="btn-red" id="printBtn" type="button">打印工牌</button>
         </div>
       </div>
 
       <div class="print-tip">
-        <b>打印设置：</b>A4纸 · 实际大小(100%) · 关闭页眉页脚 · 不勾选“适应页面” · 每页自动排列 10 张工牌（2列×5行）· 挂卡尺寸 96×55mm
+        <b>打印设置：</b>A4纸 · 实际大小(100%) · 关闭页眉页脚 · 不勾选“适应页面” · 每页自动排列 10 张工牌（2列×5行）· 挂卡尺寸 86×54mm
       </div>
 
       <div class="card preview-shell">
@@ -744,10 +926,12 @@ INDEX_HTML = """
 
     let currentArtifact = null;
     let employees = [];
-    const BRAND_B64 = "__BRAND_B64__";
+    let selectedRole = 'manager';
+    let selectedStarCount = 5;
     const LOGO_B64 = "__LOGO_B64__";
     const STAR_SRC = "__STAR_SRC__";
     const CENTER_BG_B64 = "__CENTER_BG_B64__";
+    const SLOGAN_SRC = "data:image/svg+xml;base64,__SLOGAN_B64__";
     const POS_EN = {
       '店长':'Store Manager','副店长':'Asst. Manager','店员':'Store Staff',
       '药师':'Pharmacist','执业药师':'Pharmacist','收银员':'Cashier',
@@ -788,9 +972,19 @@ INDEX_HTML = """
       currentArtifact = null;
     }
 
+    function buildStarsHtml() {
+      if (selectedStarCount <= 0) {
+        return `<img class="bb-slogan-img" src="${SLOGAN_SRC}" alt="护佑大众健康">`;
+      }
+      return Array.from({ length: selectedStarCount }, () => `<img class="bb-star" src="${STAR_SRC}" alt="★">`).join('');
+    }
+
     function makeBadge(emp) {
+      const isManager = selectedRole === 'manager';
       const roleCnDisplay = '店长';
       const roleEnDisplay = 'Store Manager';
+      const starsHtml = buildStarsHtml();
+      const starsClass = selectedStarCount <= 0 ? 'bb-stars slogan-mode' : 'bb-stars';
       const photoHtml = emp.photo
         ? `<img src="${emp.photo}" alt="照片">`
         : `<svg class="placeholder-x" viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -805,7 +999,7 @@ INDEX_HTML = """
           </svg><span class="ph-text">企微码</span>`;
 
       const div = document.createElement('div');
-      div.className = 'badge-card';
+      div.className = isManager ? 'badge-card' : 'badge-card staff-card';
       div.innerHTML = `
         <img class="badge-card-bg" src="data:image/png;base64,${CENTER_BG_B64}" alt="">
         <div class="bh">
@@ -824,7 +1018,6 @@ INDEX_HTML = """
             </div>
             <div class="bh-role-bottom"><div class="bh-role-en">${esc(roleEnDisplay)}</div></div>
           </div>
-          <img class="bh-brand-img" src="data:image/png;base64,${BRAND_B64}" alt="brand">
           <img class="bh-logo" src="data:image/svg+xml;base64,${LOGO_B64}" alt="logo">
           <div class="bh-deco">
             <div class="bh-deco-circle"></div>
@@ -835,13 +1028,7 @@ INDEX_HTML = """
           <div class="bb-photo">
             <div class="bb-photo-frame" ${emp.photo ? 'style="border-color:transparent"' : ''}>${photoHtml}</div>
           </div>
-          <div class="bb-stars">
-            <img class="bb-star" src="${STAR_SRC}" alt="★">
-            <img class="bb-star" src="${STAR_SRC}" alt="★">
-            <img class="bb-star" src="${STAR_SRC}" alt="★">
-            <img class="bb-star" src="${STAR_SRC}" alt="★">
-            <img class="bb-star" src="${STAR_SRC}" alt="★">
-          </div>
+          <div class="${starsClass}">${starsHtml}</div>
           <div class="bb-fields">
             <div class="bb-field">
               <span class="bb-field-label">姓名:</span>
@@ -869,9 +1056,38 @@ INDEX_HTML = """
 
     function renderAll(emps) {
       badgeGrid.innerHTML = '';
-      emps.forEach(e => badgeGrid.appendChild(makeBadge(e)));
+      const perPage = 10;
+      const pages = Math.ceil(emps.length / perPage);
+      for (let p = 0; p < pages; p++) {
+        const pageWrap = document.createElement('div');
+        pageWrap.className = 'preview-a4-wrap';
+
+        const pageLabel = document.createElement('p');
+        pageLabel.className = 'preview-a4-label';
+        pageLabel.textContent = `第 ${p + 1} 页 / 共 ${pages} 页`;
+
+        const pageSheet = document.createElement('div');
+        pageSheet.className = 'preview-a4-page';
+
+        const pageGrid = document.createElement('div');
+        pageGrid.className = 'preview-a4-grid';
+
+        const slice = emps.slice(p * perPage, (p + 1) * perPage);
+        slice.forEach(e => pageGrid.appendChild(makeBadge(e)));
+        for (let i = slice.length; i < perPage; i++) {
+          const blank = document.createElement('div');
+          blank.className = 'badge-card';
+          blank.style.visibility = 'hidden';
+          pageGrid.appendChild(blank);
+        }
+
+        pageSheet.appendChild(pageGrid);
+        pageWrap.appendChild(pageLabel);
+        pageWrap.appendChild(pageSheet);
+        badgeGrid.appendChild(pageWrap);
+      }
       totalNum.textContent = emps.length;
-      pageNum.textContent = Math.ceil(emps.length / 10);
+      pageNum.textContent = pages;
     }
 
     function doPrint() {
@@ -943,6 +1159,35 @@ INDEX_HTML = """
     });
     fileInput.addEventListener('change', (e) => processFile(e.target.files[0]));
     reuploadBtn.addEventListener('click', () => fileInput.click());
+    document.querySelectorAll('[data-choice]').forEach((choice) => {
+      const trigger = choice.querySelector('[data-choice-trigger]');
+      const options = choice.querySelectorAll('.choice-option');
+      trigger.addEventListener('click', (event) => {
+        event.stopPropagation();
+        document.querySelectorAll('.choice-control.open').forEach((openChoice) => {
+          if (openChoice !== choice) openChoice.classList.remove('open');
+        });
+        choice.classList.toggle('open');
+      });
+      options.forEach((option) => {
+        option.addEventListener('click', (event) => {
+          event.stopPropagation();
+          options.forEach((item) => item.classList.remove('is-selected'));
+          option.classList.add('is-selected');
+          trigger.textContent = option.textContent;
+          choice.classList.remove('open');
+          if (choice.dataset.choice === 'role') {
+            selectedRole = option.dataset.value;
+          } else {
+            selectedStarCount = Number(option.dataset.value);
+          }
+          if (employees.length) renderAll(employees);
+        });
+      });
+    });
+    document.addEventListener('click', () => {
+      document.querySelectorAll('.choice-control.open').forEach((choice) => choice.classList.remove('open'));
+    });
     document.getElementById('downloadTemplateBtn').addEventListener('click', (e) => e.stopPropagation());
     uploadTemplateBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1092,10 +1337,10 @@ def get_artifact(artifact_id: str) -> dict:
 @app.get("/")
 def index():
     html = (
-        INDEX_HTML.replace("__BRAND_B64__", BRAND_B64)
-        .replace("__LOGO_B64__", LOGO_B64)
+        INDEX_HTML.replace("__LOGO_B64__", LOGO_B64)
         .replace("__STAR_SRC__", STAR_SRC)
         .replace("__CENTER_BG_B64__", CENTER_BG_B64)
+        .replace("__SLOGAN_B64__", SLOGAN_B64)
     )
     return render_template_string(html)
 

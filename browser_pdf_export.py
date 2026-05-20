@@ -81,10 +81,6 @@ def _img_src(value: str, mime_hint: str = "image/jpeg") -> str:
     return f"data:{mime_hint};base64,{value}"
 
 
-def _load_brand_b64():
-    return _read_b64(_ASSETS / "brand_live.png", "image/png")
-
-
 def _load_logo_b64():
     return _read_b64(_ASSETS / "logo_live.svg", "image/svg+xml")
 
@@ -151,7 +147,7 @@ html, body {{
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 50.4mm;
+  width: 45.5mm;
   height: auto;
   transform: translate(calc(-50% - 5px), calc(-50% + 10px));
   opacity: 0.56;
@@ -226,19 +222,11 @@ html, body {{
   white-space: nowrap;
   letter-spacing: 0.1mm;
 }}
-.bh-brand-img {{
-  height: 8mm;
-  object-fit: contain;
-  flex-shrink: 0;
-  margin-left: 2mm;
-  position: relative;
-  z-index: 20;
-}}
 .bh-logo {{
   position: absolute;
-  left: 16mm;
+  left: 14.2mm;
   top: 10px;
-  height: 6.93mm;
+  height: 6.55mm;
   width: auto;
   object-fit: contain;
   z-index: 200;
@@ -248,7 +236,7 @@ html, body {{
   right: 0;
   top: 0;
   height: 11.3mm;
-  width: 30mm;
+  width: 24mm;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -257,15 +245,21 @@ html, body {{
   pointer-events: none;
 }}
 .bh-deco-circle {{
-  width: calc(17mm + 72px);
+  width: calc(14.5mm + 58px);
   height: calc(17mm - 5px);
-  background: #E50036;
-  border: calc(3.6mm - 3px) solid #fff;
+  background: #fff;
   border-radius: 999px;
   flex-shrink: 0;
-  transform: translate(calc(4mm + 22px), 3px);
+  transform: translate(calc(4mm + 18px), 3px);
   position: relative;
   z-index: 10;
+}}
+.bh-deco-circle::before {{
+  content: '';
+  position: absolute;
+  inset: calc(3.6mm - 3px);
+  background: #E50036;
+  border-radius: inherit;
 }}
 .bh-deco-circle::after {{
   content: '';
@@ -280,20 +274,27 @@ html, body {{
 .bh-deco-pill {{
   width: 5.5mm;
   height: 17mm;
-  background: #E50036;
-  border: 3.6mm solid #fff;
+  background: #fff;
   border-radius: 3mm;
   flex-shrink: 0;
   transform: translateX(4mm);
+  position: relative;
+}}
+.bh-deco-pill::before {{
+  content: '';
+  position: absolute;
+  inset: 3.6mm;
+  background: #E50036;
+  border-radius: calc(3mm - 1mm);
 }}
 .bb {{
   flex: 1;
   display: grid;
   grid-template-columns: __PHOTO_WIDTH__mm 1fr 20.2mm;
   grid-template-rows: 11.2mm 1fr;
-  padding: 3.1mm 2.7mm 2.5mm 2.8mm;
-  column-gap: 2.2mm;
-  row-gap: 1.5mm;
+  padding: 2.8mm 2.1mm 2.2mm 2.1mm;
+  column-gap: 1.6mm;
+  row-gap: 1.2mm;
   background: transparent;
   min-height: 0;
   position: relative;
@@ -303,7 +304,7 @@ html, body {{
   grid-column: 1;
   grid-row: 1 / 3;
   padding-top: calc(2.15mm + 3px);
-  padding-left: 5px;
+  padding-left: 4px;
   display: flex;
   flex-direction: column;
 }}
@@ -347,11 +348,11 @@ html, body {{
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }}
 .bb-star {{
-  width: 11.2mm;
-  height: 11.2mm;
+  width: 9.8mm;
+  height: 9.8mm;
   object-fit: contain;
   flex-shrink: 0;
 }}
@@ -363,17 +364,17 @@ html, body {{
   gap: 0;
   align-self: end;
   padding-right: 0;
-  margin-left: 1.2mm;
-  width: calc(100% - 20px);
+  margin-left: 4px;
+  width: calc(100% - 8px);
 }}
 .bb-field {{
   display: flex;
   align-items: flex-end;
-  margin-bottom: 2.2mm;
+  margin-bottom: 1.8mm;
   gap: 0;
 }}
 .bb-field-label {{
-  font-size: 4.17mm;
+  font-size: 3.65mm;
   font-weight: 700;
   color: #1a1a1a;
   white-space: nowrap;
@@ -383,10 +384,10 @@ html, body {{
 .bb-field-line {{
   flex: 1;
   border-bottom: 1px solid #1a1a1a;
-  min-width: 10mm;
-  margin-left: 1mm;
-  padding-bottom: 0.5mm;
-  font-size: 3.97mm;
+  min-width: 6mm;
+  margin-left: 0.7mm;
+  padding-bottom: 0.35mm;
+  font-size: 3.45mm;
   font-weight: 600;
   color: #1a1a1a;
   line-height: 1.2;
@@ -400,12 +401,12 @@ html, body {{
 .bb-qr {{
   grid-column: 3;
   grid-row: 2;
-  align-self: start;
+  align-self: end;
 }}
 .bb-qr-frame {{
-  width: calc(18.6mm + 10px);
-  height: calc(18.6mm + 10px);
-  transform: translate(calc(-0.8mm - 6px), calc(1.1mm + 6px));
+  width: 22mm;
+  height: 22mm;
+  transform: translate(-4px, 3px);
   border: 0.5mm dashed #999;
   position: relative;
   display: flex;
@@ -477,7 +478,7 @@ html, body {{
     .replace("}}", "}")
 
 
-def _build_card(card: dict, brand_src: str, logo_src: str, star_src: str, center_bg_src: str) -> str:
+def _build_card(card: dict, logo_src: str, star_src: str, center_bg_src: str) -> str:
     photo_src = _img_src(card.get("photo_b64", ""), "image/jpeg")
     qr_src = _img_src(card.get("qr_b64", ""), "image/png")
 
@@ -532,7 +533,6 @@ def _build_card(card: dict, brand_src: str, logo_src: str, star_src: str, center
         <div class="bh-role-en">Store Manager</div>
       </div>
     </div>
-    <img class="bh-brand-img" src="{brand_src}" alt="brand">
     <img class="bh-logo" src="{logo_src}" alt="logo">
     <div class="bh-deco">
       <div class="bh-deco-circle"></div>
@@ -568,7 +568,6 @@ def _build_card(card: dict, brand_src: str, logo_src: str, star_src: str, center
 
 
 def build_pdf_html(cards: list[dict]) -> str:
-    brand_src = _load_brand_b64()
     logo_src = _load_logo_b64()
     star_src = _load_star_b64()
     center_bg_src = _load_center_bg_b64()
@@ -576,7 +575,7 @@ def build_pdf_html(cards: list[dict]) -> str:
     per_page = CARDS_PER_PAGE
     for idx in range(0, len(cards), per_page):
         batch = cards[idx: idx + per_page]
-        page_cards = "".join(_build_card(card, brand_src, logo_src, star_src, center_bg_src) for card in batch)
+        page_cards = "".join(_build_card(card, logo_src, star_src, center_bg_src) for card in batch)
         blanks = "".join('<div class="badge-card" style="visibility:hidden"></div>' for _ in range(per_page - len(batch)))
         page_chunks.append(f'<section class="sheet">{page_cards}{blanks}</section>')
     return f"""<!DOCTYPE html>
