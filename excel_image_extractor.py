@@ -18,8 +18,11 @@ import re
 import zipfile
 from xml.etree import ElementTree as ET
 import openpyxl
-from PIL import Image
+from PIL import Image, ImageOps
 from lxml import etree
+
+PHOTO_TARGET_PX = (360, 504)
+QR_TARGET_PX = (360, 360)
 
 
 # ── 工具函数 ──────────────────────────────────────────────
@@ -48,6 +51,31 @@ def _bytes_to_pil(data: bytes):
         return None
 
 
+def _prepare_image(data: bytes, image_type: str):
+    """按工牌实际显示尺寸预压缩，避免原图长期占用内存。"""
+    try:
+        with Image.open(io.BytesIO(data)) as src:
+            src = ImageOps.exif_transpose(src)
+            if image_type == "photo":
+                return ImageOps.fit(src.convert("RGB"), PHOTO_TARGET_PX, method=Image.Resampling.LANCZOS)
+
+            img = src.convert("RGB")
+            img.thumbnail(QR_TARGET_PX, Image.Resampling.NEAREST)
+            canvas = Image.new("RGB", QR_TARGET_PX, "white")
+            canvas.paste(img, ((QR_TARGET_PX[0] - img.width) // 2, (QR_TARGET_PX[1] - img.height) // 2))
+            return canvas
+    except Exception:
+        return None
+
+
+def _infer_image_type(col_0based, photo_col_idx=None, qr_col_idx=None):
+    if photo_col_idx is not None and col_0based == photo_col_idx:
+        return "photo"
+    if qr_col_idx is not None and col_0based == qr_col_idx:
+        return "qr"
+    return "photo"
+
+
 def _normalize_header(text):
     """表头标准化，兼容括号说明和空白差异。"""
     return re.sub(r'\s+|（.*?）|\(.*?\)', '', str(text or ''))
@@ -63,7 +91,7 @@ def _parse_dispimg_formula(formula_text):
 
 # ── 主提取函数 ────────────────────────────────────────────
 
-def extract_images_from_excel(file_bytes: bytes):
+def extract_images_from_excel(file_bytes: bytes, max_row_1based: int | None = None):
     """
     从 Excel 文件字节中提取内嵌图片。
 
@@ -77,33 +105,35 @@ def extract_images_from_excel(file_bytes: bytes):
         以此类推
     """
     # ── Step 1：用 openpyxl 读表头，确定照片/二维码列索引 ──
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
-    ws = wb.active
-
-    header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), [])
-    header_row = [str(h).strip() if h is not None else "" for h in header_row]
-
     photo_col_idx = None   # 0-based
     qr_col_idx    = None   # 0-based
-    for i, h in enumerate(header_row):
-        normalized = _normalize_header(h)
-        if "照片" in normalized:
-            photo_col_idx = i
-        if "二维码" in normalized or "企微码" in normalized:
-            qr_col_idx = i
+    all_images = {}   # key: (row_1based, col_0based) -> PIL Image
 
-    print(f"[图片提取] 表头列: {header_row}")
-    print(f"[图片提取] 照片列(0-based)={photo_col_idx}, 二维码列(0-based)={qr_col_idx}")
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    try:
+        ws = wb.active
+
+        header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), [])
+        header_row = [str(h).strip() if h is not None else "" for h in header_row]
+        for i, h in enumerate(header_row):
+            normalized = _normalize_header(h)
+            if "照片" in normalized:
+                photo_col_idx = i
+            if "二维码" in normalized or "企微码" in normalized:
+                qr_col_idx = i
+
+        print(f"[图片提取] 表头列: {header_row}")
+        print(f"[图片提取] 照片列(0-based)={photo_col_idx}, 二维码列(0-based)={qr_col_idx}")
 
     # ── Step 2：收集所有图片 (行, 列, PIL Image) ──────────
     # 用 set 去重，同一位置只保留第一张
-    all_images = {}   # key: (row_1based, col_0based) -> PIL Image
-
-    # 方法A：openpyxl _images（浮动图片）
-    _extract_floating(ws, all_images)
+        # 方法A：openpyxl _images（浮动图片）
+        _extract_floating(ws, all_images, photo_col_idx, qr_col_idx, max_row_1based)
+    finally:
+        wb.close()
 
     # 方法B：直接解析 xlsx zip（单元格绑定图片 / cellImages）
-    _extract_cell_images(file_bytes, all_images)
+    _extract_cell_images(file_bytes, all_images, photo_col_idx, qr_col_idx, max_row_1based)
 
     print(f"[图片提取] 合计收集到 {len(all_images)} 张图片位置")
     for (r, c), img in sorted(all_images.items()):
@@ -144,7 +174,7 @@ def extract_images_from_excel(file_bytes: bytes):
 
 # ── 方法A：openpyxl 浮动图片 ─────────────────────────────
 
-def _extract_floating(ws, all_images: dict):
+def _extract_floating(ws, all_images: dict, photo_col_idx=None, qr_col_idx=None, max_row_1based=None):
     """
     从 openpyxl worksheet._images 提取浮动图片。
     anchor._from.row / col 均为 0-based。
@@ -170,7 +200,10 @@ def _extract_floating(ws, all_images: dict):
             continue
 
         row_1based = row_0based + 1   # 转为 1-based Excel 行号
-        pil_img = _bytes_to_pil(img_data)
+        if max_row_1based is not None and row_1based > max_row_1based:
+            continue
+
+        pil_img = _prepare_image(img_data, _infer_image_type(col_0based, photo_col_idx, qr_col_idx))
         if pil_img and (row_1based, col_0based) not in all_images:
             all_images[(row_1based, col_0based)] = pil_img
             print(f"  [方法A] 行{row_1based}, 列{col_0based} ✓")
@@ -178,7 +211,7 @@ def _extract_floating(ws, all_images: dict):
 
 # ── 方法B：直接解析 xlsx zip 包 ───────────────────────────
 
-def _extract_cell_images(file_bytes: bytes, all_images: dict):
+def _extract_cell_images(file_bytes: bytes, all_images: dict, photo_col_idx=None, qr_col_idx=None, max_row_1based=None):
     """
     直接解析 xlsx（本质是 zip）内部 XML，提取：
       1. 传统 drawing（xl/drawings/drawingN.xml）中的图片锚点
@@ -192,126 +225,97 @@ def _extract_cell_images(file_bytes: bytes, all_images: dict):
         print(f"[方法B] 无法打开 zip: {e}")
         return
 
-    names = zf.namelist()
+    with zf:
+        names = zf.namelist()
 
-    # ── B1：传统 drawing XML ──────────────────────────────
-    drawing_files = [n for n in names if re.match(r'xl/drawings/drawing\d+\.xml$', n)]
-    print(f"[方法B] 发现 drawing 文件: {drawing_files}")
+        # ── B1：传统 drawing XML ──────────────────────────────
+        drawing_files = [n for n in names if re.match(r'xl/drawings/drawing\d+\.xml$', n)]
+        print(f"[方法B] 发现 drawing 文件: {drawing_files}")
 
-    for drawing_path in drawing_files:
-        # 对应的 rels 文件
-        rels_path = drawing_path.replace('drawings/drawing', 'drawings/_rels/drawing') \
-                                .replace('.xml', '.xml.rels')
+        for drawing_path in drawing_files:
+            rels_path = drawing_path.replace('drawings/drawing', 'drawings/_rels/drawing').replace('.xml', '.xml.rels')
+            rId_to_imgpath = {}
+            if rels_path in names:
+                rels_root = etree.fromstring(zf.read(rels_path))
+                for rel in rels_root:
+                    rid = rel.get('Id', '')
+                    target = rel.get('Target', '')
+                    rtype = rel.get('Type', '')
+                    if 'image' in rtype.lower():
+                        base = '/'.join(drawing_path.split('/')[:-1])
+                        rId_to_imgpath[rid] = _resolve_path(base, target)
 
-        # 读取 rels，建立 rId -> 图片文件路径 映射
-        rId_to_imgpath = {}
-        if rels_path in names:
-            rels_xml = zf.read(rels_path)
-            rels_root = etree.fromstring(rels_xml)
-            for rel in rels_root:
-                rid    = rel.get('Id', '')
-                target = rel.get('Target', '')
-                rtype  = rel.get('Type', '')
-                if 'image' in rtype.lower():
-                    # target 是相对路径，如 ../media/image1.png
-                    # 转为 zip 内绝对路径
-                    base = '/'.join(drawing_path.split('/')[:-1])
-                    img_zip_path = _resolve_path(base, target)
-                    rId_to_imgpath[rid] = img_zip_path
+            root = etree.fromstring(zf.read(drawing_path))
+            ns = {
+                'xdr': 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing',
+                'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
+                'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+            }
 
-        # 解析 drawing XML，提取锚点 + rId
-        drawing_xml = zf.read(drawing_path)
-        root = etree.fromstring(drawing_xml)
-        ns = {
-            'xdr': 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing',
-            'a':   'http://schemas.openxmlformats.org/drawingml/2006/main',
-            'r':   'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
-        }
+            for anchor_tag in ('xdr:twoCellAnchor', 'xdr:oneCellAnchor'):
+                for anchor_el in root.findall(anchor_tag, ns):
+                    from_el = anchor_el.find('xdr:from', ns)
+                    if from_el is None:
+                        continue
+                    col_el = from_el.find('xdr:col', ns)
+                    row_el = from_el.find('xdr:row', ns)
+                    if col_el is None or row_el is None:
+                        continue
 
-        # 遍历所有锚点类型
-        for anchor_tag in ('xdr:twoCellAnchor', 'xdr:oneCellAnchor'):
-            for anchor_el in root.findall(anchor_tag, ns):
-                from_el = anchor_el.find('xdr:from', ns)
-                if from_el is None:
-                    continue
-                col_el = from_el.find('xdr:col', ns)
-                row_el = from_el.find('xdr:row', ns)
-                if col_el is None or row_el is None:
-                    continue
+                    col_0based = int(col_el.text)
+                    row_1based = int(row_el.text) + 1
+                    if max_row_1based is not None and row_1based > max_row_1based:
+                        continue
 
-                col_0based = int(col_el.text)   # 0-based
-                row_0based = int(row_el.text)   # 0-based
-                row_1based = row_0based + 1
+                    blip_el = anchor_el.find('.//a:blip', ns)
+                    if blip_el is None:
+                        continue
+                    rid = blip_el.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed', '')
+                    img_zip_path = rId_to_imgpath.get(rid)
+                    if not img_zip_path or img_zip_path not in names:
+                        print(f"  [方法B] rId={rid} 找不到图片文件")
+                        continue
 
-                # 找图片 rId
-                pic_el = anchor_el.find('.//xdr:pic', ns)
-                if pic_el is None:
-                    continue
-                blip_el = pic_el.find('.//a:blip', ns)
-                if blip_el is None:
-                    continue
+                    pil_img = _prepare_image(zf.read(img_zip_path), _infer_image_type(col_0based, photo_col_idx, qr_col_idx))
+                    if pil_img and (row_1based, col_0based) not in all_images:
+                        all_images[(row_1based, col_0based)] = pil_img
+                        print(f"  [方法B-drawing] 行{row_1based}, 列{col_0based} ✓ ({img_zip_path})")
+
+        # ── B2：新版单元格绑定图片（cellImages）────────────────
+        _extract_dispimg_cell_images(zf, names, all_images, photo_col_idx, qr_col_idx, max_row_1based)
+
+        cell_image_files = [n for n in names if re.match(r'xl/cellImages/cellImage\d+\.xml$', n)]
+        print(f"[方法B] 发现 cellImage 文件: {cell_image_files}")
+
+        for ci_path in cell_image_files:
+            rels_path = ci_path.replace('cellImages/cellImage', 'cellImages/_rels/cellImage').replace('.xml', '.xml.rels')
+            rId_to_imgpath = {}
+            if rels_path in names:
+                rels_root = etree.fromstring(zf.read(rels_path))
+                for rel in rels_root:
+                    rid = rel.get('Id', '')
+                    target = rel.get('Target', '')
+                    rtype = rel.get('Type', '')
+                    if 'image' in rtype.lower():
+                        base = '/'.join(ci_path.split('/')[:-1])
+                        rId_to_imgpath[rid] = _resolve_path(base, target)
+
+            ci_root = etree.fromstring(zf.read(ci_path))
+            for blip_el in ci_root.iter('{http://schemas.openxmlformats.org/drawingml/2006/main}blip'):
                 rid = blip_el.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed', '')
-
                 img_zip_path = rId_to_imgpath.get(rid)
                 if not img_zip_path or img_zip_path not in names:
-                    print(f"  [方法B] rId={rid} 找不到图片文件")
                     continue
+                pil_img = _prepare_image(zf.read(img_zip_path), "photo")
+                if pil_img:
+                    print(f"  [方法B-cellImage] 提取到图片 {img_zip_path}，尺寸{pil_img.size}（行列待定）")
+                    seq = len([k for k in all_images if k[0] == -1])
+                    all_images[(-1, seq)] = pil_img
 
-                img_data = zf.read(img_zip_path)
-                pil_img  = _bytes_to_pil(img_data)
-                if pil_img and (row_1based, col_0based) not in all_images:
-                    all_images[(row_1based, col_0based)] = pil_img
-                    print(f"  [方法B-drawing] 行{row_1based}, 列{col_0based} ✓ ({img_zip_path})")
-
-    # ── B2：新版单元格绑定图片（cellImages）────────────────
-    # 结构1：Excel / WPS 单文件清单 xl/cellimages.xml + DISPIMG("ID_xxx")
-    _extract_dispimg_cell_images(zf, names, all_images)
-
-    # 结构2：文件路径形如 xl/cellImages/cellImage1.xml
-    cell_image_files = [n for n in names if re.match(r'xl/cellImages/cellImage\d+\.xml$', n)]
-    print(f"[方法B] 发现 cellImage 文件: {cell_image_files}")
-
-    for ci_path in cell_image_files:
-        rels_path = ci_path.replace('cellImages/cellImage', 'cellImages/_rels/cellImage') \
-                           .replace('.xml', '.xml.rels')
-
-        rId_to_imgpath = {}
-        if rels_path in names:
-            rels_xml  = zf.read(rels_path)
-            rels_root = etree.fromstring(rels_xml)
-            for rel in rels_root:
-                rid    = rel.get('Id', '')
-                target = rel.get('Target', '')
-                rtype  = rel.get('Type', '')
-                if 'image' in rtype.lower():
-                    base = '/'.join(ci_path.split('/')[:-1])
-                    rId_to_imgpath[rid] = _resolve_path(base, target)
-
-        ci_xml  = zf.read(ci_path)
-        ci_root = etree.fromstring(ci_xml)
-
-        # cellImage XML 结构：<etc:cellImage> 内含 <xdr:pic> 和位置信息
-        # 位置通常在父级 sheet XML 的 <etc:cellImages> 节点里
-        # 这里直接提取图片数据，行列从文件名序号推断（兜底）
-        for blip_el in ci_root.iter('{http://schemas.openxmlformats.org/drawingml/2006/main}blip'):
-            rid = blip_el.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed', '')
-            img_zip_path = rId_to_imgpath.get(rid)
-            if not img_zip_path or img_zip_path not in names:
-                continue
-            img_data = zf.read(img_zip_path)
-            pil_img  = _bytes_to_pil(img_data)
-            if pil_img:
-                print(f"  [方法B-cellImage] 提取到图片 {img_zip_path}，尺寸{pil_img.size}（行列待定）")
-                # cellImage 的行列需要从 sheet XML 的 <etc:cellImages> 读取
-                # 这里先存到特殊 key (-1, seq)，后续在 _resolve_cell_image_positions 中修正
-                seq = len([k for k in all_images if k[0] == -1])
-                all_images[(-1, seq)] = pil_img
-
-    # 尝试从 sheet XML 补全 cellImage 的行列位置
-    _resolve_cell_image_positions(zf, names, all_images)
+        _resolve_cell_image_positions(zf, names, all_images)
 
 
-def _extract_dispimg_cell_images(zf, names, all_images: dict):
+def _extract_dispimg_cell_images(zf, names, all_images: dict, photo_col_idx=None, qr_col_idx=None, max_row_1based=None):
     """
     解析 WPS / 新版 Excel 的 DISPIMG 图片结构：
       - 图片定义在 xl/cellimages.xml
@@ -324,6 +328,30 @@ def _extract_dispimg_cell_images(zf, names, all_images: dict):
     rels_path = 'xl/_rels/cellimages.xml.rels'
     if rels_path not in names:
         print("[方法B-dispimg] 缺少 cellimages.xml.rels")
+        return
+
+    wanted_ids = {}
+    sheet_files = [n for n in names if re.match(r'xl/worksheets/sheet\d+\.xml$', n)]
+    cell_ns = {'ws': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+    for sheet_path in sheet_files:
+        sheet_root = ET.fromstring(zf.read(sheet_path))
+        for cell in sheet_root.findall('.//ws:c', cell_ns):
+            cell_ref = cell.attrib.get('r', '')
+            formula_node = cell.find('ws:f', cell_ns)
+            pic_id = _parse_dispimg_formula(formula_node.text if formula_node is not None else '')
+            if not pic_id:
+                continue
+            match = re.match(r'([A-Z]+)(\d+)$', cell_ref)
+            if not match:
+                continue
+            col_letters, row_text = match.groups()
+            row_1based = int(row_text)
+            if max_row_1based is not None and row_1based > max_row_1based:
+                continue
+            wanted_ids[pic_id] = (row_1based, _col_index(col_letters))
+
+    if not wanted_ids:
+        print("[方法B-dispimg] 未找到限制范围内的 DISPIMG 引用")
         return
 
     pic_id_to_image = {}
@@ -357,10 +385,11 @@ def _extract_dispimg_cell_images(zf, names, all_images: dict):
         pic_id = c_nv_pr.attrib.get('name') or c_nv_pr.attrib.get('descr')
         rid = blip.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed', '')
         img_zip_path = rid_to_imgpath.get(rid)
-        if not pic_id or not img_zip_path or img_zip_path not in names:
+        if not pic_id or pic_id not in wanted_ids or not img_zip_path or img_zip_path not in names:
             continue
 
-        pil_img = _bytes_to_pil(zf.read(img_zip_path))
+        row_1based, col_0based = wanted_ids[pic_id]
+        pil_img = _prepare_image(zf.read(img_zip_path), _infer_image_type(col_0based, photo_col_idx, qr_col_idx))
         if pil_img is not None:
             pic_id_to_image[pic_id] = pil_img
             print(f"  [方法B-dispimg] 图片ID={pic_id} ✓ ({img_zip_path})")
@@ -369,26 +398,11 @@ def _extract_dispimg_cell_images(zf, names, all_images: dict):
         print("[方法B-dispimg] 未解析到图片清单")
         return
 
-    sheet_files = [n for n in names if re.match(r'xl/worksheets/sheet\d+\.xml$', n)]
-    cell_ns = {'ws': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
-    for sheet_path in sheet_files:
-        sheet_root = ET.fromstring(zf.read(sheet_path))
-        for cell in sheet_root.findall('.//ws:c', cell_ns):
-            cell_ref = cell.attrib.get('r', '')
-            formula_node = cell.find('ws:f', cell_ns)
-            pic_id = _parse_dispimg_formula(formula_node.text if formula_node is not None else '')
-            if not pic_id or pic_id not in pic_id_to_image:
-                continue
-
-            match = re.match(r'([A-Z]+)(\d+)$', cell_ref)
-            if not match:
-                continue
-            col_letters, row_text = match.groups()
-            col_0based = _col_index(col_letters)
-            row_1based = int(row_text)
-            if (row_1based, col_0based) not in all_images:
-                all_images[(row_1based, col_0based)] = pic_id_to_image[pic_id]
-                print(f"  [方法B-dispimg] 行{row_1based}, 列{col_0based} ✓ (ID={pic_id})")
+    for pic_id, pil_img in pic_id_to_image.items():
+        row_1based, col_0based = wanted_ids[pic_id]
+        if (row_1based, col_0based) not in all_images:
+            all_images[(row_1based, col_0based)] = pil_img
+            print(f"  [方法B-dispimg] 行{row_1based}, 列{col_0based} ✓ (ID={pic_id})")
 
 
 def _resolve_cell_image_positions(zf, names, all_images):

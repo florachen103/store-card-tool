@@ -353,8 +353,11 @@ html, body {{
 .bb-star {{
   width: 9.8mm;
   height: 9.8mm;
-  object-fit: contain;
   flex-shrink: 0;
+  background-image: var(--star-src);
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
 }}
 .bb-fields {{
   grid-column: 2;
@@ -510,7 +513,7 @@ def _build_card(card: dict, logo_src: str, star_src: str, center_bg_src: str) ->
         qr_style = ""
         qr_label = '<div class="bb-qr-label">企微码</div>'
 
-    stars = "".join(f'<img class="bb-star" src="{star_src}" alt="★">' for _ in range(5))
+    stars = "".join('<span class="bb-star" aria-label="★"></span>' for _ in range(5))
 
     return f"""
 <div class="badge-card">
@@ -543,7 +546,7 @@ def _build_card(card: dict, logo_src: str, star_src: str, center_bg_src: str) ->
     <div class="bb-photo">
       <div class="bb-photo-frame"{photo_style}>{photo_html}</div>
     </div>
-    <div class="bb-stars">{stars}</div>
+    <div class="bb-stars" style="--star-src:url('{star_src}')">{stars}</div>
     <div class="bb-fields">
       <div class="bb-field">
         <span class="bb-field-label">姓名:</span>
@@ -621,28 +624,40 @@ def build_preview_html(cards: list[dict], scale: float = 0.46) -> str:
     )
 
 
-def export_cards_to_pdf(cards: list[dict], output_path: str):
+def export_html_to_pdf(html: str, output_path: str):
     chrome = _chrome_bin()
     if not chrome:
         raise RuntimeError("未找到 Google Chrome，无法使用浏览器版 PDF 导出")
 
-    html = build_pdf_html(cards)
     with tempfile.TemporaryDirectory() as tmpdir:
         html_path = Path(tmpdir) / "badges.html"
+        user_data_dir = Path(tmpdir) / "chrome-user-data"
         pdf_path = Path(output_path)
         html_path.write_text(html, encoding="utf-8")
         cmd = [
             chrome,
             "--headless=new",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
             "--disable-gpu",
+            "--disable-extensions",
+            "--disable-background-networking",
+            f"--user-data-dir={str(user_data_dir)}",
             "--run-all-compositor-stages-before-draw",
             f"--print-to-pdf={str(pdf_path)}",
             "--no-pdf-header-footer",
             html_path.as_uri(),
         ]
-        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("Chrome PDF 导出超时，请减少单次工牌数量后重试") from exc
         if not pdf_path.exists():
             raise RuntimeError("Chrome 已执行，但未生成 PDF 文件")
+
+
+def export_cards_to_pdf(cards: list[dict], output_path: str):
+    export_html_to_pdf(build_pdf_html(cards), output_path)
 
 
 def export_cards_to_pdf_bytes(cards: list[dict]) -> bytes:
@@ -673,7 +688,10 @@ def render_pdf_preview_images(pdf_bytes: bytes, max_pages: int = 3, dpi: int = 1
             str(pdf_path),
             str(out_prefix),
         ]
-        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+        except subprocess.TimeoutExpired:
+            return []
         images = []
         for idx in range(1, max_pages + 1):
             page_path = Path(f"{out_prefix}-{idx}.png")

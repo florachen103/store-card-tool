@@ -6,8 +6,12 @@ Run with: python app.py
 from __future__ import annotations
 
 import base64
+import gc
 import io
 import math
+import os
+import shutil
+import subprocess
 import tempfile
 import time
 import uuid
@@ -18,6 +22,7 @@ import pandas as pd
 from flask import Flask, Response, jsonify, redirect, render_template_string, request, send_file, url_for
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from werkzeug.exceptions import RequestEntityTooLarge
 
 import browser_pdf_export as browser_export
 from excel_image_extractor import extract_images_from_excel
@@ -25,12 +30,25 @@ from excel_image_extractor import extract_images_from_excel
 
 app = Flask(__name__)
 
+MAX_UPLOAD_BYTES = int(os.environ.get("STORE_CARD_MAX_UPLOAD_MB", "20")) * 1024 * 1024
+MAX_CARDS_PER_UPLOAD = int(os.environ.get("STORE_CARD_MAX_CARDS", "50"))
+ARTIFACT_TTL_SECONDS = int(os.environ.get("STORE_CARD_ARTIFACT_TTL_SECONDS", "1800"))
+MAX_ARTIFACTS = int(os.environ.get("STORE_CARD_MAX_ARTIFACTS", "3"))
+
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+
 ARTIFACTS: dict[str, dict] = {}
 TMP_PREVIEW_PATH = Path(tempfile.gettempdir()) / "store-card-latest-preview.html"
 LOGO_B64 = base64.b64encode((Path(__file__).resolve().parent / "assets" / "logo_live.svg").read_bytes()).decode()
 STAR_SRC = browser_export._load_star_b64()
 CENTER_BG_B64 = base64.b64encode((Path(__file__).resolve().parent / "assets" / "card_center_bg.png").read_bytes()).decode()
 SLOGAN_B64 = base64.b64encode((Path(__file__).resolve().parent / "assets" / "huyou_da_jiankang_calligraphy_vector.svg").read_bytes()).decode()
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_upload_too_large(_exc):
+    max_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+    return jsonify({"ok": False, "error": f"Excel 文件不能超过 {max_mb}MB"}), 413
 
 
 INDEX_HTML = """
@@ -1199,11 +1217,19 @@ INDEX_HTML = """
 """
 
 
-def prune_artifacts(max_age_seconds: int = 3600) -> None:
+def prune_artifacts(max_age_seconds: int = ARTIFACT_TTL_SECONDS) -> None:
     cutoff = time.time() - max_age_seconds
     stale = [key for key, value in ARTIFACTS.items() if value["created_at"] < cutoff]
+    if len(ARTIFACTS) - len(stale) > MAX_ARTIFACTS:
+        active = sorted(
+            ((key, value["created_at"]) for key, value in ARTIFACTS.items() if key not in stale),
+            key=lambda item: item[1],
+        )
+        stale.extend(key for key, _ in active[: max(0, len(ARTIFACTS) - len(stale) - MAX_ARTIFACTS)])
     for key in stale:
-        ARTIFACTS.pop(key, None)
+        artifact = ARTIFACTS.pop(key, None)
+        if artifact and artifact.get("tmpdir"):
+            shutil.rmtree(artifact["tmpdir"], ignore_errors=True)
 
 
 def build_template_xlsx() -> bytes:
@@ -1254,17 +1280,21 @@ def build_template_xlsx() -> bytes:
     return buf.getvalue()
 
 
-def pil_to_b64(img) -> str:
+def pil_to_b64(img, quality: int = 82) -> str:
     if img is None:
         return ""
     buf = io.BytesIO()
-    img.convert("RGB").save(buf, format="JPEG", quality=90)
+    img.convert("RGB").save(buf, format="JPEG", quality=quality, optimize=True)
     return base64.b64encode(buf.getvalue()).decode()
 
 
 def parse_excel(file_bytes: bytes) -> tuple[list[dict], dict]:
-    df = pd.read_excel(io.BytesIO(file_bytes), dtype=str).fillna("")
-    photo_by_row, qr_by_row = extract_images_from_excel(file_bytes)
+    df = pd.read_excel(io.BytesIO(file_bytes), dtype=str, nrows=MAX_CARDS_PER_UPLOAD + 1).fillna("")
+    if len(df) > MAX_CARDS_PER_UPLOAD:
+        raise ValueError(f"单次最多生成 {MAX_CARDS_PER_UPLOAD} 张工牌，请拆分 Excel 后再上传")
+
+    max_excel_row = len(df) + 1
+    photo_by_row, qr_by_row = extract_images_from_excel(file_bytes, max_row_1based=max_excel_row)
 
     warnings = {"missing_photo": [], "missing_qr": []}
     staff_list = []
@@ -1290,41 +1320,66 @@ def parse_excel(file_bytes: bytes) -> tuple[list[dict], dict]:
 def build_browser_cards(staff_list: list[dict]) -> list[dict]:
     cards = []
     for staff in staff_list:
+        photo_b64 = pil_to_b64(staff.get("photo"), quality=82)
+        qr_b64 = pil_to_b64(staff.get("qr_code"), quality=88)
         cards.append(
             {
                 "name": staff["name"],
                 "title": staff["title"],
                 "staff_id": staff["staff_id"],
-                "photo_b64": pil_to_b64(staff.get("photo")),
-                "qr_b64": pil_to_b64(staff.get("qr_code")),
+                "photo_b64": photo_b64,
+                "qr_b64": qr_b64,
             }
         )
     return cards
 
 
-def build_client_employees(staff_list: list[dict]) -> list[dict]:
+def build_client_employees(cards: list[dict]) -> list[dict]:
     items = []
-    for staff in staff_list:
+    for card in cards:
+        photo_b64 = card.get("photo_b64", "")
+        qr_b64 = card.get("qr_b64", "")
         items.append(
             {
-                "name": staff["name"],
-                "position": staff["title"],
-                "employeeId": staff["staff_id"],
-                "photo": f"data:image/jpeg;base64,{pil_to_b64(staff.get('photo'))}" if staff.get("photo") is not None else "",
-                "qrcode": f"data:image/jpeg;base64,{pil_to_b64(staff.get('qr_code'))}" if staff.get("qr_code") is not None else "",
+                "name": card["name"],
+                "position": card["title"],
+                "employeeId": card["staff_id"],
+                "photo": f"data:image/jpeg;base64,{photo_b64}" if photo_b64 else "",
+                "qrcode": f"data:image/jpeg;base64,{qr_b64}" if qr_b64 else "",
             }
         )
     return items
 
 
-def build_png_zip(pdf_bytes: bytes, total_pages: int) -> bytes:
-    preview_images = browser_export.render_pdf_preview_images(pdf_bytes, max_pages=total_pages, dpi=180)
-    zip_buf = io.BytesIO()
-    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for idx, image_bytes in enumerate(preview_images, start=1):
-            zf.writestr(f"page_{idx:02d}.png", image_bytes)
-    zip_buf.seek(0)
-    return zip_buf.getvalue()
+def build_png_zip(pdf_path: Path, total_pages: int, output_path: Path) -> None:
+    pdftoppm = shutil.which("pdftoppm")
+    if not pdftoppm:
+        raise RuntimeError("未找到 pdftoppm，无法生成 PNG ZIP")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_prefix = Path(tmpdir) / "page"
+        cmd = [
+            pdftoppm,
+            "-png",
+            "-r",
+            "180",
+            "-f",
+            "1",
+            "-l",
+            str(total_pages),
+            str(pdf_path),
+            str(out_prefix),
+        ]
+        try:
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("PNG 导出超时，请减少单次工牌数量后重试") from exc
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for idx in range(1, total_pages + 1):
+                page_path = Path(f"{out_prefix}-{idx}.png")
+                if not page_path.exists():
+                    break
+                zf.write(page_path, f"page_{idx:02d}.png")
 
 
 def get_artifact(artifact_id: str) -> dict:
@@ -1359,6 +1414,7 @@ def download_template():
 @app.post("/api/upload")
 def upload_excel():
     prune_artifacts()
+    artifact_tmpdir = None
     file = request.files.get("file")
     if not file or not file.filename:
         return jsonify({"ok": False, "error": "请选择 Excel 文件"}), 400
@@ -1366,30 +1422,56 @@ def upload_excel():
         return jsonify({"ok": False, "error": "请上传 .xlsx 格式的 Excel 文件"}), 400
 
     try:
+        if request.content_length and request.content_length > MAX_UPLOAD_BYTES:
+            max_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+            return jsonify({"ok": False, "error": f"Excel 文件不能超过 {max_mb}MB"}), 413
+
         file_bytes = file.read()
+        if len(file_bytes) > MAX_UPLOAD_BYTES:
+            max_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+            return jsonify({"ok": False, "error": f"Excel 文件不能超过 {max_mb}MB"}), 413
+
         staff_list, warnings = parse_excel(file_bytes)
         cards = build_browser_cards(staff_list)
-        client_employees = build_client_employees(staff_list)
+        client_employees = build_client_employees(cards)
+        del staff_list
         total_cards = len(cards)
         total_pages = max(1, math.ceil(total_cards / browser_export.CARDS_PER_PAGE))
+
+        if total_cards > MAX_CARDS_PER_UPLOAD:
+            return jsonify({"ok": False, "error": f"单次最多生成 {MAX_CARDS_PER_UPLOAD} 张工牌"}), 400
+
         html_content = browser_export.build_pdf_html(cards)
         preview_html = browser_export.build_preview_html(cards)
-        pdf_bytes = browser_export.export_cards_to_pdf_bytes(cards)
+        del cards
 
         artifact_id = uuid.uuid4().hex
+        artifact_tmpdir = tempfile.mkdtemp(prefix=f"store-card-{artifact_id}-")
+        artifact_dir = Path(artifact_tmpdir)
+        html_path = artifact_dir / "print.html"
+        preview_path = artifact_dir / "preview.html"
+        pdf_path = artifact_dir / "badges.pdf"
+        png_zip_path = artifact_dir / "badges.zip"
+
+        html_path.write_text(html_content, encoding="utf-8")
+        preview_path.write_text(preview_html, encoding="utf-8")
+        browser_export.export_html_to_pdf(html_content, str(pdf_path))
+
         ARTIFACTS[artifact_id] = {
             "created_at": time.time(),
+            "tmpdir": artifact_tmpdir,
             "total_cards": total_cards,
             "total_pages": total_pages,
-                "warnings": warnings,
-                "employees": client_employees,
-                "html_content": html_content,
-                "preview_html": preview_html,
-                "pdf_bytes": pdf_bytes,
-            "png_zip": None,
+            "warnings": warnings,
+            "html_path": str(html_path),
+            "preview_path": str(preview_path),
+            "pdf_path": str(pdf_path),
+            "png_zip_path": str(png_zip_path),
+            "png_zip_ready": False,
         }
 
         TMP_PREVIEW_PATH.write_text(preview_html, encoding="utf-8")
+        del file_bytes, html_content, preview_html
 
         return jsonify(
             {
@@ -1406,8 +1488,18 @@ def upload_excel():
                 "downloadPngUrl": url_for("download_png_zip", artifact_id=artifact_id),
             }
         )
+    except ValueError as exc:
+        if artifact_tmpdir:
+            shutil.rmtree(artifact_tmpdir, ignore_errors=True)
+        gc.collect()
+        return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:
+        if artifact_tmpdir:
+            shutil.rmtree(artifact_tmpdir, ignore_errors=True)
+        gc.collect()
         return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        gc.collect()
 
 
 @app.get("/preview/<artifact_id>")
@@ -1416,7 +1508,7 @@ def preview_artifact(artifact_id: str):
         artifact = get_artifact(artifact_id)
     except KeyError as exc:
         return Response(str(exc), status=404, mimetype="text/plain")
-    return Response(artifact["preview_html"], mimetype="text/html; charset=utf-8")
+    return send_file(artifact["preview_path"], mimetype="text/html; charset=utf-8")
 
 
 @app.get("/print/<artifact_id>")
@@ -1425,7 +1517,7 @@ def print_artifact(artifact_id: str):
         artifact = get_artifact(artifact_id)
     except KeyError as exc:
         return Response(str(exc), status=404, mimetype="text/plain")
-    html = artifact["html_content"].replace(
+    html = Path(artifact["html_path"]).read_text(encoding="utf-8").replace(
         "</body>",
         "<script>window.onload=function(){setTimeout(function(){window.print();},120);};</script></body>",
     )
@@ -1436,7 +1528,7 @@ def print_artifact(artifact_id: str):
 def download_html(artifact_id: str):
     artifact = get_artifact(artifact_id)
     return send_file(
-        io.BytesIO(artifact["preview_html"].encode("utf-8")),
+        artifact["preview_path"],
         as_attachment=True,
         download_name="store-card-latest-preview.html",
         mimetype="text/html",
@@ -1447,7 +1539,7 @@ def download_html(artifact_id: str):
 def download_pdf(artifact_id: str):
     artifact = get_artifact(artifact_id)
     return send_file(
-        io.BytesIO(artifact["pdf_bytes"]),
+        artifact["pdf_path"],
         as_attachment=True,
         download_name="挂卡打印.pdf",
         mimetype="application/pdf",
@@ -1457,10 +1549,11 @@ def download_pdf(artifact_id: str):
 @app.get("/download/png/<artifact_id>")
 def download_png_zip(artifact_id: str):
     artifact = get_artifact(artifact_id)
-    if artifact["png_zip"] is None:
-        artifact["png_zip"] = build_png_zip(artifact["pdf_bytes"], artifact["total_pages"])
+    if not artifact["png_zip_ready"]:
+        build_png_zip(Path(artifact["pdf_path"]), artifact["total_pages"], Path(artifact["png_zip_path"]))
+        artifact["png_zip_ready"] = True
     return send_file(
-        io.BytesIO(artifact["png_zip"]),
+        artifact["png_zip_path"],
         as_attachment=True,
         download_name="挂卡打印.zip",
         mimetype="application/zip",
