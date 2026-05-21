@@ -5,3 +5,4 @@ output/
 input/
 *.pyc
 .env
+analytics_local.db

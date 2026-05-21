@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import gc
+import hmac
 import io
 import math
 import os
@@ -16,19 +17,24 @@ import tempfile
 import time
 import uuid
 import zipfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
-from flask import Flask, Response, jsonify, redirect, render_template_string, request, send_file, url_for
+from flask import Flask, Response, jsonify, redirect, render_template_string, request, send_file, session, url_for
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from sqlalchemy import func, select
 from werkzeug.exceptions import RequestEntityTooLarge
 
+from analytics import analytics_events, get_engine, get_session_id, init_analytics, track_event
 import browser_pdf_export as browser_export
 from excel_image_extractor import extract_images_from_excel
 
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.urandom(32)
+init_analytics()
 
 MAX_UPLOAD_BYTES = int(os.environ.get("STORE_CARD_MAX_UPLOAD_MB", "20")) * 1024 * 1024
 MAX_CARDS_PER_UPLOAD = int(os.environ.get("STORE_CARD_MAX_CARDS", "50"))
@@ -905,6 +911,7 @@ INDEX_HTML = """
             </div>
           </label>
           <button class="btn-outline" id="reuploadBtn" type="button">重新上传</button>
+          <button class="btn-outline" id="downloadPdfBtn" type="button">下载 PDF</button>
           <button class="btn-red" id="printBtn" type="button">打印工牌</button>
         </div>
       </div>
@@ -939,10 +946,12 @@ INDEX_HTML = """
     const totalNum = document.getElementById('totalNum');
     const pageNum = document.getElementById('pageNum');
     const printBtn = document.getElementById('printBtn');
+    const downloadPdfBtn = document.getElementById('downloadPdfBtn');
     const reuploadBtn = document.getElementById('reuploadBtn');
     const uploadTemplateBtn = document.getElementById('uploadTemplateBtn');
 
     let currentArtifact = null;
+    let currentDownloadPdfUrl = '';
     let employees = [];
     let selectedRole = 'manager';
     let selectedStarCount = 5;
@@ -955,6 +964,32 @@ INDEX_HTML = """
       '药师':'Pharmacist','执业药师':'Pharmacist','收银员':'Cashier',
       '主任':'Director','经理':'Manager','顾问':'Consultant'
     };
+
+    function getAnalyticsSessionId() {
+      let sessionId = localStorage.getItem('analytics_session_id');
+      if (!sessionId) {
+        sessionId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        localStorage.setItem('analytics_session_id', sessionId);
+      }
+      return sessionId;
+    }
+
+    function track(eventName, payload = {}) {
+      const body = {
+        event_name: eventName,
+        session_id: getAnalyticsSessionId(),
+        page_path: window.location.pathname,
+        ...payload
+      };
+      fetch('/api/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        keepalive: true
+      }).catch(() => {});
+    }
+
+    track('page_view');
 
     function getPosEn(pos) { return POS_EN[pos] || 'Employee'; }
 
@@ -988,6 +1023,7 @@ INDEX_HTML = """
       printArea.innerHTML = '';
       employees = [];
       currentArtifact = null;
+      currentDownloadPdfUrl = '';
     }
 
     function buildStarsHtml() {
@@ -1109,6 +1145,7 @@ INDEX_HTML = """
     }
 
     function doPrint() {
+      track('print_click', { card_count: employees.length });
       printArea.innerHTML = '';
       const perPage = 10;
       const pages = Math.ceil(employees.length / perPage);
@@ -1138,6 +1175,7 @@ INDEX_HTML = """
       hideError();
       resetPreview();
       setProgress(10, '上传中...', '正在提交 Excel 文件');
+      track('upload_click');
 
       const formData = new FormData();
       formData.append('file', file);
@@ -1152,6 +1190,7 @@ INDEX_HTML = """
 
         setProgress(100, '生成完成', '正在加载预览');
         currentArtifact = data.artifactId;
+        currentDownloadPdfUrl = data.downloadPdfUrl || '';
         employees = data.employees || [];
         renderAll(employees);
         dropZone.style.display = 'none';
@@ -1177,6 +1216,38 @@ INDEX_HTML = """
     });
     fileInput.addEventListener('change', (e) => processFile(e.target.files[0]));
     reuploadBtn.addEventListener('click', () => fileInput.click());
+    downloadPdfBtn.addEventListener('click', async () => {
+      if (!currentDownloadPdfUrl) return;
+      track('pdf_download_click', { card_count: employees.length });
+      downloadPdfBtn.disabled = true;
+      const originalText = downloadPdfBtn.textContent;
+      downloadPdfBtn.textContent = '正在生成 PDF...';
+      try {
+        const res = await fetch(currentDownloadPdfUrl);
+        if (!res.ok) {
+          let message = 'PDF 下载失败，请稍后重试';
+          try {
+            const data = await res.json();
+            message = data.error || message;
+          } catch (_) {}
+          throw new Error(message);
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = '挂卡打印.pdf';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        showError(err.message || 'PDF 下载失败，请稍后重试');
+      } finally {
+        downloadPdfBtn.disabled = false;
+        downloadPdfBtn.textContent = originalText;
+      }
+    });
     document.querySelectorAll('[data-choice]').forEach((choice) => {
       const trigger = choice.querySelector('[data-choice-trigger]');
       const options = choice.querySelectorAll('.choice-option');
@@ -1206,7 +1277,10 @@ INDEX_HTML = """
     document.addEventListener('click', () => {
       document.querySelectorAll('.choice-control.open').forEach((choice) => choice.classList.remove('open'));
     });
-    document.getElementById('downloadTemplateBtn').addEventListener('click', (e) => e.stopPropagation());
+    document.getElementById('downloadTemplateBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      track('template_download_click');
+    });
     uploadTemplateBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       fileInput.click();
@@ -1389,6 +1463,17 @@ def get_artifact(artifact_id: str) -> dict:
     return artifact
 
 
+def ensure_artifact_pdf(artifact: dict) -> Path:
+    pdf_path = Path(artifact["pdf_path"])
+    if artifact.get("pdf_ready") and pdf_path.exists():
+        return pdf_path
+
+    html_content = Path(artifact["html_path"]).read_text(encoding="utf-8")
+    browser_export.export_html_to_pdf(html_content, str(pdf_path))
+    artifact["pdf_ready"] = True
+    return pdf_path
+
+
 @app.get("/")
 def index():
     html = (
@@ -1402,6 +1487,7 @@ def index():
 
 @app.get("/template.xlsx")
 def download_template():
+    track_event("template_download", success=True, page_path=request.path)
     data = build_template_xlsx()
     return send_file(
         io.BytesIO(data),
@@ -1411,27 +1497,271 @@ def download_template():
     )
 
 
+@app.post("/api/track")
+def api_track():
+    payload = request.get_json(silent=True) or {}
+    event_name = str(payload.get("event_name") or payload.get("eventName") or "")[:80]
+    if not event_name:
+        return jsonify({"ok": False, "error": "missing event_name"}), 400
+
+    session_id = get_session_id(request, payload)
+    returned_session_id = track_event(
+        event_name,
+        success=payload.get("success"),
+        page_path=payload.get("page_path") or payload.get("pagePath") or request.path,
+        card_count=payload.get("card_count") or payload.get("cardCount"),
+        row_count=payload.get("row_count") or payload.get("rowCount"),
+        meta_json=payload.get("meta") if isinstance(payload.get("meta"), dict) else None,
+        session_id=session_id,
+    )
+    response = jsonify({"ok": True, "sessionId": returned_session_id or session_id})
+    response.set_cookie(
+        "analytics_session_id",
+        returned_session_id or session_id,
+        max_age=60 * 60 * 24 * 365,
+        httponly=True,
+        samesite="Lax",
+        secure=request.is_secure,
+    )
+    return response
+
+
+def _today_start() -> datetime:
+    now = datetime.now().astimezone()
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _admin_authorized() -> bool:
+    configured = os.environ.get("ADMIN_STATS_PASSWORD")
+    return bool(configured and session.get("admin_stats_ok"))
+
+
+def _admin_stats_html(error: str = "") -> str:
+    configured = os.environ.get("ADMIN_STATS_PASSWORD")
+    if not configured:
+        return "统计页未启用", 404
+    if not _admin_authorized():
+        return render_template_string(
+            """
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>统计登录</title></head>
+<body style="font-family:Arial,'Microsoft YaHei',sans-serif;max-width:420px;margin:80px auto;">
+  <h1>统计登录</h1>
+  {% if error %}<p style="color:#c00;">{{ error }}</p>{% endif %}
+  <form method="post">
+    <input name="password" type="password" placeholder="密码" style="width:100%;padding:10px;margin-bottom:12px;">
+    <button type="submit" style="padding:10px 16px;">进入</button>
+  </form>
+</body>
+</html>
+            """,
+            error=error,
+        )
+
+    engine = get_engine()
+    if engine is None:
+        return Response("统计数据库暂不可用", status=503, mimetype="text/plain; charset=utf-8")
+
+    start = _today_start()
+    seven_days_start = start - timedelta(days=6)
+    with engine.begin() as conn:
+        today_sessions = conn.execute(
+            select(func.count(func.distinct(analytics_events.c.session_id))).where(
+                analytics_events.c.created_at >= start,
+                analytics_events.c.event_name == "page_view",
+                analytics_events.c.session_id.is_not(None),
+            )
+        ).scalar() or 0
+        today_page_views = conn.execute(
+            select(func.count()).where(
+                analytics_events.c.created_at >= start,
+                analytics_events.c.event_name == "page_view",
+            )
+        ).scalar() or 0
+        today_uploads = conn.execute(
+            select(func.count()).where(
+                analytics_events.c.created_at >= start,
+                analytics_events.c.event_name == "upload_start",
+            )
+        ).scalar() or 0
+        today_upload_success = conn.execute(
+            select(func.count()).where(
+                analytics_events.c.created_at >= start,
+                analytics_events.c.event_name == "upload_success",
+                analytics_events.c.success.is_(True),
+            )
+        ).scalar() or 0
+        today_card_success = conn.execute(
+            select(func.count()).where(
+                analytics_events.c.created_at >= start,
+                analytics_events.c.event_name == "card_generate_success",
+                analytics_events.c.success.is_(True),
+            )
+        ).scalar() or 0
+        today_pdf_download = conn.execute(
+            select(func.count()).where(
+                analytics_events.c.created_at >= start,
+                analytics_events.c.event_name == "pdf_download",
+            )
+        ).scalar() or 0
+        today_template_download = conn.execute(
+            select(func.count()).where(
+                analytics_events.c.created_at >= start,
+                analytics_events.c.event_name == "template_download",
+            )
+        ).scalar() or 0
+        recent_rows = conn.execute(
+            select(analytics_events)
+            .where(analytics_events.c.created_at >= seven_days_start)
+            .order_by(analytics_events.c.created_at.asc())
+        ).mappings().all()
+        failures = conn.execute(
+            select(
+                analytics_events.c.created_at,
+                analytics_events.c.event_name,
+                analytics_events.c.page_path,
+                analytics_events.c.error_message,
+                analytics_events.c.session_id,
+            )
+            .where(analytics_events.c.success.is_(False))
+            .order_by(analytics_events.c.created_at.desc())
+            .limit(20)
+        ).mappings().all()
+
+    trend = []
+    def row_local_date(value):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone().date()
+
+    for offset in range(7):
+        day = (seven_days_start + timedelta(days=offset)).date()
+        day_rows = [row for row in recent_rows if row_local_date(row["created_at"]) == day]
+        trend.append(
+            {
+                "date": day.isoformat(),
+                "page_views": sum(1 for row in day_rows if row["event_name"] == "page_view"),
+                "uploads": sum(1 for row in day_rows if row["event_name"] == "upload_start"),
+                "upload_success": sum(1 for row in day_rows if row["event_name"] == "upload_success"),
+                "card_success": sum(1 for row in day_rows if row["event_name"] == "card_generate_success"),
+                "pdf_downloads": sum(1 for row in day_rows if row["event_name"] == "pdf_download"),
+            }
+        )
+
+    upload_rate = f"{(today_upload_success / today_uploads * 100):.1f}%" if today_uploads else "0.0%"
+    return render_template_string(
+        """
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>工卡工具使用统计</title>
+  <style>
+    body{font-family:Arial,'Microsoft YaHei',sans-serif;margin:32px;background:#f6f7f9;color:#222}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px}
+    .num{font-size:28px;font-weight:700;margin-top:6px}
+    table{width:100%;border-collapse:collapse;background:#fff}
+    th,td{border-bottom:1px solid #eee;text-align:left;padding:10px;font-size:13px}
+    h1,h2{margin:24px 0 12px}
+  </style>
+</head>
+<body>
+  <h1>工卡工具使用统计</h1>
+  <div class="grid">
+    <div class="card">今日独立访问会话数<div class="num">{{ today_sessions }}</div></div>
+    <div class="card">今日 page_view 次数<div class="num">{{ today_page_views }}</div></div>
+    <div class="card">今日上传次数<div class="num">{{ today_uploads }}</div></div>
+    <div class="card">今日上传成功次数<div class="num">{{ today_upload_success }}</div></div>
+    <div class="card">今日上传成功率<div class="num">{{ upload_rate }}</div></div>
+    <div class="card">今日工卡生成成功次数<div class="num">{{ today_card_success }}</div></div>
+    <div class="card">今日 PDF 下载次数<div class="num">{{ today_pdf_download }}</div></div>
+    <div class="card">今日模板下载次数<div class="num">{{ today_template_download }}</div></div>
+  </div>
+
+  <h2>最近 7 天每日趋势</h2>
+  <table>
+    <thead><tr><th>日期</th><th>PV</th><th>上传</th><th>上传成功</th><th>生成成功</th><th>PDF 下载</th></tr></thead>
+    <tbody>
+      {% for row in trend %}
+      <tr><td>{{ row.date }}</td><td>{{ row.page_views }}</td><td>{{ row.uploads }}</td><td>{{ row.upload_success }}</td><td>{{ row.card_success }}</td><td>{{ row.pdf_downloads }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>最近 20 条失败事件</h2>
+  <table>
+    <thead><tr><th>时间</th><th>事件</th><th>页面</th><th>错误</th><th>会话</th></tr></thead>
+    <tbody>
+      {% for row in failures %}
+      <tr><td>{{ row.created_at }}</td><td>{{ row.event_name }}</td><td>{{ row.page_path }}</td><td>{{ row.error_message }}</td><td>{{ row.session_id }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>
+        """,
+        today_sessions=today_sessions,
+        today_page_views=today_page_views,
+        today_uploads=today_uploads,
+        today_upload_success=today_upload_success,
+        upload_rate=upload_rate,
+        today_card_success=today_card_success,
+        today_pdf_download=today_pdf_download,
+        today_template_download=today_template_download,
+        trend=trend,
+        failures=failures,
+    )
+
+
+@app.route("/admin/stats", methods=["GET", "POST"])
+def admin_stats():
+    configured = os.environ.get("ADMIN_STATS_PASSWORD")
+    if not configured:
+        return Response("Not Found", status=404)
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        if hmac.compare_digest(password, configured):
+            session["admin_stats_ok"] = True
+            return redirect(url_for("admin_stats"))
+        return _admin_stats_html("密码错误")
+    return _admin_stats_html()
+
+
 @app.post("/api/upload")
 def upload_excel():
     prune_artifacts()
     artifact_tmpdir = None
+    stage = "upload"
+    session_id = get_session_id(request)
+    track_event("upload_start", page_path=request.path, session_id=session_id)
     file = request.files.get("file")
     if not file or not file.filename:
+        track_event("upload_failed", success=False, page_path=request.path, error_message="请选择 Excel 文件", session_id=session_id)
         return jsonify({"ok": False, "error": "请选择 Excel 文件"}), 400
     if not file.filename.lower().endswith(".xlsx"):
+        track_event("upload_failed", success=False, page_path=request.path, error_message="请上传 .xlsx 格式的 Excel 文件", session_id=session_id)
         return jsonify({"ok": False, "error": "请上传 .xlsx 格式的 Excel 文件"}), 400
 
     try:
         if request.content_length and request.content_length > MAX_UPLOAD_BYTES:
             max_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+            track_event("upload_failed", success=False, page_path=request.path, error_message=f"Excel 文件不能超过 {max_mb}MB", session_id=session_id)
             return jsonify({"ok": False, "error": f"Excel 文件不能超过 {max_mb}MB"}), 413
 
         file_bytes = file.read()
         if len(file_bytes) > MAX_UPLOAD_BYTES:
             max_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+            track_event("upload_failed", success=False, page_path=request.path, error_message=f"Excel 文件不能超过 {max_mb}MB", session_id=session_id)
             return jsonify({"ok": False, "error": f"Excel 文件不能超过 {max_mb}MB"}), 413
 
+        stage = "image_extract"
         staff_list, warnings = parse_excel(file_bytes)
+        row_count = len(staff_list)
+        track_event("image_extract_success", success=True, page_path=request.path, row_count=row_count, session_id=session_id)
+        track_event("upload_success", success=True, page_path=request.path, row_count=row_count, session_id=session_id)
+        stage = "card_generate"
         cards = build_browser_cards(staff_list)
         client_employees = build_client_employees(cards)
         del staff_list
@@ -1439,6 +1769,14 @@ def upload_excel():
         total_pages = max(1, math.ceil(total_cards / browser_export.CARDS_PER_PAGE))
 
         if total_cards > MAX_CARDS_PER_UPLOAD:
+            track_event(
+                "card_generate_failed",
+                success=False,
+                page_path=request.path,
+                card_count=total_cards,
+                error_message=f"单次最多生成 {MAX_CARDS_PER_UPLOAD} 张工牌",
+                session_id=session_id,
+            )
             return jsonify({"ok": False, "error": f"单次最多生成 {MAX_CARDS_PER_UPLOAD} 张工牌"}), 400
 
         html_content = browser_export.build_pdf_html(cards)
@@ -1455,7 +1793,6 @@ def upload_excel():
 
         html_path.write_text(html_content, encoding="utf-8")
         preview_path.write_text(preview_html, encoding="utf-8")
-        browser_export.export_html_to_pdf(html_content, str(pdf_path))
 
         ARTIFACTS[artifact_id] = {
             "created_at": time.time(),
@@ -1466,12 +1803,14 @@ def upload_excel():
             "html_path": str(html_path),
             "preview_path": str(preview_path),
             "pdf_path": str(pdf_path),
+            "pdf_ready": False,
             "png_zip_path": str(png_zip_path),
             "png_zip_ready": False,
         }
 
         TMP_PREVIEW_PATH.write_text(preview_html, encoding="utf-8")
         del file_bytes, html_content, preview_html
+        track_event("card_generate_success", success=True, page_path=request.path, card_count=total_cards, row_count=row_count, session_id=session_id)
 
         return jsonify(
             {
@@ -1492,11 +1831,25 @@ def upload_excel():
         if artifact_tmpdir:
             shutil.rmtree(artifact_tmpdir, ignore_errors=True)
         gc.collect()
+        if stage == "image_extract":
+            track_event("image_extract_failed", success=False, page_path=request.path, error_message=str(exc), session_id=session_id)
+            track_event("upload_failed", success=False, page_path=request.path, error_message=str(exc), session_id=session_id)
+        elif stage == "upload":
+            track_event("upload_failed", success=False, page_path=request.path, error_message=str(exc), session_id=session_id)
+        else:
+            track_event("card_generate_failed", success=False, page_path=request.path, error_message=str(exc), session_id=session_id)
         return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:
         if artifact_tmpdir:
             shutil.rmtree(artifact_tmpdir, ignore_errors=True)
         gc.collect()
+        if stage == "image_extract":
+            track_event("image_extract_failed", success=False, page_path=request.path, error_message=str(exc), session_id=session_id)
+            track_event("upload_failed", success=False, page_path=request.path, error_message=str(exc), session_id=session_id)
+        elif stage == "upload":
+            track_event("upload_failed", success=False, page_path=request.path, error_message=str(exc), session_id=session_id)
+        else:
+            track_event("card_generate_failed", success=False, page_path=request.path, error_message=str(exc), session_id=session_id)
         return jsonify({"ok": False, "error": str(exc)}), 500
     finally:
         gc.collect()
@@ -1537,20 +1890,40 @@ def download_html(artifact_id: str):
 
 @app.get("/download/pdf/<artifact_id>")
 def download_pdf(artifact_id: str):
-    artifact = get_artifact(artifact_id)
-    return send_file(
-        artifact["pdf_path"],
-        as_attachment=True,
-        download_name="挂卡打印.pdf",
-        mimetype="application/pdf",
-    )
+    try:
+        artifact = get_artifact(artifact_id)
+        pdf_path = ensure_artifact_pdf(artifact)
+        track_event(
+            "pdf_download",
+            success=True,
+            page_path=request.path,
+            card_count=artifact.get("total_cards"),
+            meta_json={"total_pages": artifact.get("total_pages")},
+        )
+        return send_file(
+            pdf_path,
+            as_attachment=True,
+            download_name="挂卡打印.pdf",
+            mimetype="application/pdf",
+        )
+    except KeyError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 404
+    except Exception as exc:
+        track_event(
+            "pdf_download_failed",
+            success=False,
+            page_path=request.path,
+            error_message=str(exc),
+        )
+        return jsonify({"ok": False, "error": f"PDF 下载失败：{exc}"}), 500
 
 
 @app.get("/download/png/<artifact_id>")
 def download_png_zip(artifact_id: str):
     artifact = get_artifact(artifact_id)
+    pdf_path = ensure_artifact_pdf(artifact)
     if not artifact["png_zip_ready"]:
-        build_png_zip(Path(artifact["pdf_path"]), artifact["total_pages"], Path(artifact["png_zip_path"]))
+        build_png_zip(pdf_path, artifact["total_pages"], Path(artifact["png_zip_path"]))
         artifact["png_zip_ready"] = True
     return send_file(
         artifact["png_zip_path"],
